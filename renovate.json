@@ -1,0 +1,84 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard"
+  ],
+  "timezone": "Europe/Berlin",
+  "automerge": false,
+  "automergeType": "pr",
+  "platformAutomerge": true,
+  "automergeStrategy": "rebase",
+  "rebaseWhen": "behind-base-branch",
+  "enabledManagers": [
+    "github-actions",
+    "ansible-galaxy",
+    "pip_requirements",
+    "custom.regex"
+  ],
+  "customManagers": [
+    {
+      "description": "Images in the Compose templates. They are Jinja, not YAML (FOUNDRY_HOSTNAME: {{ foundry_hostname }} is an unquoted flow mapping), so the docker-compose manager cannot be trusted to parse them and would skip a file silently.",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^roles/[^/]+/templates/compose\\.yml\\.j2$/"
+      ],
+      "matchStrings": [
+        "image: (?<depName>[^:\\s@]+):(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[0-9a-f]{64})"
+      ],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "description": "discord.py, pinned in the task that installs it into the bot's venv.",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^roles/discord_bot/tasks/main\\.yml$/"
+      ],
+      "matchStrings": [
+        "name: discord\\.py==(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)"
+      ],
+      "depNameTemplate": "discord.py",
+      "datasourceTemplate": "pypi"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Automerge routine non-major updates after CI passes. Nothing deploys on merge: golem converges only when someone pulls on it.",
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "pinDigest",
+        "digest"
+      ],
+      "automerge": true
+    },
+    {
+      "description": "The Beszel agent follows the NAS's hub, and the Dozzle agent must match the NAS's Dozzle (see monitoring's compose). The NAS repository bumps the other half, so these merge by hand, together with it.",
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchPackageNames": [
+        "ghcr.io/henrygd/beszel/beszel-agent",
+        "docker.io/amir20/dozzle"
+      ],
+      "addLabels": [
+        "needs-nas-bump"
+      ],
+      "automerge": false
+    },
+    {
+      "description": "A Foundry major migrates worlds in place and breaks modules; it waits for approval on the dashboard.",
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchPackageNames": [
+        "felddy/foundryvtt"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "dependencyDashboardApproval": true
+    }
+  ]
+}
