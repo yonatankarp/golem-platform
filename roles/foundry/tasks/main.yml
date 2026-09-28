@@ -1,0 +1,40 @@
+- name: Create the Foundry directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0750"
+  loop:
+    - /srv/foundry
+    - /srv/foundry/data
+
+# The foundryvtt.com login downloads the release and fetches the licence; the
+# admin key guards Foundry's /setup page behind Cloudflare Access.
+- name: Render Foundry's credentials
+  ansible.builtin.copy:
+    dest: /srv/foundry/foundry.env
+    content: |
+      FOUNDRY_USERNAME={{ vault_foundry_username }}
+      FOUNDRY_PASSWORD={{ vault_foundry_password }}
+      FOUNDRY_ADMIN_KEY={{ vault_foundry_admin_key }}
+    mode: "0600"
+  no_log: true
+
+# Kept apart from foundry.env so a compromised Foundry never sees the token.
+- name: Render the tunnel token
+  ansible.builtin.copy:
+    dest: /srv/foundry/.env
+    content: |
+      TUNNEL_TOKEN={{ vault_cloudflare_tunnel_token }}
+    mode: "0600"
+  no_log: true
+
+- name: Render the Foundry stack
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: /srv/foundry/compose.yml
+    mode: "0644"
+
+- name: Deploy the Foundry stack
+  community.docker.docker_compose_v2:
+    project_src: /srv/foundry
+    state: present

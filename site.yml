@@ -1,8 +1,13 @@
 - name: Converge golem
   hosts: golem
   become: true
+  # Written with ansible-vault by the operator; vault.example.yml lists its keys.
+  vars_files:
+    - vault.yml
   roles:
     - base
     - hardening
     - docker
     - agent
+    - monitoring
+    - foundry

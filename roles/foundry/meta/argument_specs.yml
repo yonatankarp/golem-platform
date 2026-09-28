@@ -1,0 +1,22 @@
+argument_specs:
+  main:
+    short_description: FoundryVTT published through a Cloudflare Tunnel
+    options:
+      foundry_hostname:
+        type: str
+        required: true
+      vault_foundry_username:
+        type: str
+        required: true
+      vault_foundry_password:
+        type: str
+        required: true
+        no_log: true
+      vault_foundry_admin_key:
+        type: str
+        required: true
+        no_log: true
+      vault_cloudflare_tunnel_token:
+        type: str
+        required: true
+        no_log: true

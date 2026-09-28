@@ -1,0 +1,50 @@
+name: monitoring
+
+x-logging: &logging
+  driver: json-file
+  options: {max-size: 10m, max-file: "3"}
+
+services:
+  # Dials the NAS's Beszel hub outbound and registers itself with the hub's
+  # universal token, so nothing on the NAS has to be told about golem first.
+  agent:
+    image: ghcr.io/henrygd/beszel/beszel-agent:0.20.0@sha256:2c3b2d781a8bcdb464704c0024baab5486d238d40871b67c84d906d34791c490
+    restart: unless-stopped
+    logging: *logging
+    depends_on:
+      socket-proxy:
+        condition: service_healthy
+    networks: [default, docker-api]
+    volumes:
+      # Holds the agent's fingerprint; losing it registers golem a second time.
+      - /srv/monitoring/beszel-agent:/var/lib/beszel-agent
+    env_file: .env
+    environment:
+      DISABLE_SSH: "true"
+      DOCKER_HOST: tcp://socket-proxy:2375
+      HUB_URL: {{ beszel_hub_url }}
+      SYSTEM_NAME: golem
+
+  # CONTAINERS serves /containers/{id}/json, which includes every container's
+  # environment -- the tunnel token among them. So this proxy sits on an
+  # internal network shared with the agent alone and publishes nothing (NAS #829).
+  socket-proxy:
+    image: lscr.io/linuxserver/socket-proxy:3.4.5@sha256:ca6c0301a652232d02cb0ff9f1c5d20d9b339f391e1c1dffaae6ef3bfc59d009
+    restart: unless-stopped
+    logging: *logging
+    networks: [docker-api]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      CONTAINERS: "1"
+      EVENTS: "0"
+      POST: "0"
+    healthcheck:
+      test: [CMD-SHELL, "wget -q -O - http://127.0.0.1:2375/_ping | grep -qx OK"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+networks:
+  docker-api:
+    internal: true

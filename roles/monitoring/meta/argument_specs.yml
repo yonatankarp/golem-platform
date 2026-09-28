@@ -1,0 +1,17 @@
+argument_specs:
+  main:
+    short_description: Beszel agent reporting golem to the NAS hub
+    options:
+      beszel_hub_url:
+        type: str
+        required: true
+      # Copies of NAS vault values under the same names: vault_beszel_agent_key is the hub's
+      # public key, vault_beszel_universal_token its universal token. Rotating
+      # either on the NAS means updating it here too.
+      vault_beszel_agent_key:
+        type: str
+        required: true
+      vault_beszel_universal_token:
+        type: str
+        required: true
+        no_log: true

@@ -1,0 +1,29 @@
+- name: Create the monitoring directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0700"
+  loop:
+    - /srv/monitoring
+    - /srv/monitoring/beszel-agent
+
+- name: Render the Beszel agent's credentials
+  ansible.builtin.copy:
+    dest: /srv/monitoring/.env
+    content: |
+      KEY={{ vault_beszel_agent_key }}
+      TOKEN={{ vault_beszel_universal_token }}
+    mode: "0600"
+  no_log: true
+
+- name: Render the monitoring stack
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: /srv/monitoring/compose.yml
+    mode: "0644"
+
+- name: Deploy the monitoring stack
+  community.docker.docker_compose_v2:
+    project_src: /srv/monitoring
+    state: present
+    wait: true
