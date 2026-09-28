@@ -11,5 +11,7 @@ all:
     # The agent must never starve Foundry: 8 GB RAM, 4 threads in total.
     agent_memory_max: 3G
     agent_cpu_quota: 200%
-    beszel_hub_url: http://as6704t-4043.tail4e1ae8.ts.net:8090
+    # The NAS's tailnet IP, not its MagicDNS name: golem's resolver is the
+    # router, so containers on a Compose network cannot resolve *.ts.net.
+    beszel_hub_url: http://100.102.136.50:8090
     foundry_hostname: dnd.yonatankarp.com
