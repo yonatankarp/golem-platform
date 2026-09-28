@@ -13,18 +13,37 @@
       - socat
     state: present
 
-# The native binary needs AVX, which this i5-3210M has (it lacks AVX2).
-# The installer keeps the binary up to date by itself under ~/.local.
-- name: Install Claude Code for the agent
-  ansible.builtin.shell: set -o pipefail && curl -fsSL https://claude.ai/install.sh | bash
-  args:
-    executable: /bin/bash
-    creates: "/home/{{ agent_user }}/.local/bin/claude"
-  become: true
-  become_user: "{{ agent_user }}"
+# Installed from Anthropic's signed apt repository (key fingerprint
+# 31DD DE24 DDFA B679 F42D 7BD2 BAA9 29FF 1A7E CACE, checked 2026-09-28), so
+# it updates with the rest of the system rather than through its own updater.
+# The binary needs AVX, which this i5-3210M has (it lacks AVX2).
+- name: Add Claude Code's apt repository
+  ansible.builtin.deb822_repository:
+    name: claude-code
+    types: deb
+    uris: https://downloads.claude.ai/claude-code/apt/stable
+    suites: stable
+    components: main
+    signed_by: https://downloads.claude.ai/keys/claude-code.asc
+
+- name: Install Claude Code
+  ansible.builtin.apt:
+    name: claude-code
+    state: present
+    update_cache: true
+
+# The first install came from the curl installer; nothing may shadow the
+# packaged binary on the agent's PATH.
+- name: Remove the curl-installed Claude Code
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "/home/{{ agent_user }}/.local/bin/claude"
+    - "/home/{{ agent_user }}/.local/share/claude"
 
 - name: Prove Claude Code runs on this CPU
-  ansible.builtin.command: "/home/{{ agent_user }}/.local/bin/claude --version"
+  ansible.builtin.command: claude --version
   become: true
   become_user: "{{ agent_user }}"
   changed_when: false
