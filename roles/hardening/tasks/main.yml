@@ -63,22 +63,37 @@
   register: hardening_agent
 
 # The agent has no sudo and is kept out of the docker group, which is root in
-# all but name. Everything it runs is capped through its user slice. Under
-# --check a not-yet-created user has no uid, so these two are skipped.
-- name: Create the agent's slice drop-in directory
+# all but name. Its cap is a slice of its own rather than user-<uid>.slice:
+# `sudo -iu agent` opens no logind session and lands in the caller's slice
+# (measured: user-1000.slice), and a system unit with User=agent lands in
+# system.slice. So every agent process is started with Slice=agent.slice,
+# interactively through agent-shell and unattended through its units.
+- name: Remove the ineffective per-user slice cap
   ansible.builtin.file:
     path: "/etc/systemd/system/user-{{ hardening_agent.uid }}.slice.d"
-    state: directory
-    mode: "0755"
+    state: absent
   when: hardening_agent.uid is defined
+  notify: Reload systemd
 
-- name: Cap the agent's memory and CPU
+- name: Define the agent's slice
   ansible.builtin.copy:
-    dest: "/etc/systemd/system/user-{{ hardening_agent.uid }}.slice.d/50-limits.conf"
+    dest: /etc/systemd/system/agent.slice
     content: |
+      [Unit]
+      Description=Claude Code agent (capped so it cannot starve Foundry)
+
       [Slice]
       MemoryMax={{ agent_memory_max }}
       CPUQuota={{ agent_cpu_quota }}
     mode: "0644"
-  when: hardening_agent.uid is defined
   notify: Reload systemd
+
+- name: Install agent-shell, an interactive login as the agent inside its slice
+  ansible.builtin.copy:
+    dest: /usr/local/sbin/agent-shell
+    content: |
+      #!/bin/sh
+      exec systemd-run --quiet --uid={{ agent_user }} --slice=agent.slice \
+        --working-directory=/home/{{ agent_user }} --pty --wait --collect \
+        /bin/bash -l
+    mode: "0755"
