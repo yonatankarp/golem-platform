@@ -13,6 +13,11 @@ ansible-playbook site.yml --check --diff
 ansible-playbook site.yml
 ```
 
+CI lints and syntax-checks the playbook and runs the bot's tests, with the
+tooling pinned in `controller-requirements.txt`. Renovate keeps images,
+collections, actions and those pins current, and automerges non-major bumps once
+CI passes; merging deploys nothing until the next `git pull` on golem.
+
 SSH is key-only, from the LAN or the tailnet. Docker-published ports bypass ufw,
 so containers publish nothing except onto the tailnet address.
 
