@@ -1,11 +1,32 @@
-- name: Create the Foundry directories
+# A template value saved unedited deployed once and crash-looped cloudflared;
+# refuse it here instead. The values themselves are never printed.
+- name: Refuse placeholder Foundry credentials
+  ansible.builtin.assert:
+    that:
+      - vault_cloudflare_tunnel_token is match('^eyJ[A-Za-z0-9_=-]{40,}$')
+      - vault_foundry_admin_key | length >= 12
+      - vault_foundry_username | length >= 2
+      - vault_foundry_password | length >= 6
+    fail_msg: >-
+      group_vars/all/vault_foundry.yml holds a placeholder or malformed value
+      (tunnel token must be the eyJ... token, admin key at least 12 characters).
+    quiet: true
+  no_log: true
+
+- name: Create the Foundry directory
   ansible.builtin.file:
-    path: "{{ item }}"
+    path: /srv/foundry
     state: directory
     mode: "0750"
-  loop:
-    - /srv/foundry
-    - /srv/foundry/data
+
+# The image runs Foundry as uid 1000 and aborts if /data is not writable.
+- name: Create Foundry's data directory
+  ansible.builtin.file:
+    path: /srv/foundry/data
+    state: directory
+    owner: "1000"
+    group: "1000"
+    mode: "0750"
 
 # The foundryvtt.com login downloads the release and fetches the licence; the
 # admin key guards Foundry's /setup page behind Cloudflare Access.
