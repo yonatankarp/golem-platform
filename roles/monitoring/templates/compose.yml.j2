@@ -23,7 +23,10 @@ services:
       DISABLE_SSH: "true"
       DOCKER_HOST: tcp://socket-proxy:2375
       HUB_URL: {{ beszel_hub_url }}
-      SYSTEM_NAME: golem
+      # Golem is the monitoring name; the machine stays golem. Read only when the
+      # agent first registers: an agent the hub already knows by its fingerprint
+      # keeps its record's name, which nas-platform's Beszel role renames.
+      SYSTEM_NAME: Golem
 
   # CONTAINERS serves /containers/{id}/json, which includes every container's
   # environment -- the tunnel token among them. So this proxy sits on an
@@ -61,7 +64,8 @@ services:
   # tailnet address, where a Tailscale Serve TCP forward reaches the NAS's alert
   # relay, so the pushed URL works unchanged. DOZZLE_HOSTNAME is the host name
   # the agent stamps on every event; the NAS relay pages events from host
-  # `golem` on the Golem Pushover app, so it must stay exactly that.
+  # `Golem` on the Golem Pushover app, so it must stay exactly that (the relay
+  # also accepts the former `golem` until nas-platform drops it).
   dozzle-agent:
     image: docker.io/amir20/dozzle:v11.1.2@sha256:55204b375a03c92310d79b659b66217bd38f5675b361e2b5e7b4a03139bbb077
     restart: unless-stopped
@@ -90,7 +94,7 @@ services:
     environment:
       DOCKER_HOST: tcp://dozzle-socket-proxy:2375
       DOZZLE_CERT: /certs/cert.pem
-      DOZZLE_HOSTNAME: golem
+      DOZZLE_HOSTNAME: Golem
       DOZZLE_KEY: /certs/key.pem
       DOZZLE_NO_ANALYTICS: "true"
     healthcheck:
