@@ -11,5 +11,4 @@ all:
     agent_memory_max: 3G
     agent_cpu_quota: 200%
     beszel_hub_url: http://as6704t-4043.tail4e1ae8.ts.net:8090
-    # foundry_hostname: foundry.<your Cloudflare domain> -- required by the
-    # foundry role, which refuses to run without it.
+    foundry_hostname: dnd.yonatankarp.com
