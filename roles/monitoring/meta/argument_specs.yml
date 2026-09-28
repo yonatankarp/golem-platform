@@ -5,6 +5,10 @@ argument_specs:
       beszel_hub_url:
         type: str
         required: true
+      nas_tailnet_address:
+        type: str
+        required: true
+        description: The NAS's tailnet IP; the Dozzle agent's alert-relay resolves to it.
       # Copies of NAS vault values under the same names: vault_beszel_agent_key is the hub's
       # public key, vault_beszel_universal_token its universal token. Rotating
       # either on the NAS means updating it here too.

@@ -13,7 +13,8 @@ all:
     agent_cpu_quota: 200%
     # The NAS's tailnet IP, not its MagicDNS name: golem's resolver is the
     # router, so containers on a Compose network cannot resolve *.ts.net.
-    beszel_hub_url: http://100.102.136.50:8090
+    nas_tailnet_address: 100.102.136.50
+    beszel_hub_url: "http://{{ nas_tailnet_address }}:8090"
     # Where the NAS's Dozzle dials golem's Dozzle agent: golem's tailnet IP,
     # never 0.0.0.0, because ufw does not filter Docker-published ports. An IP
     # rather than a name for the same reason as beszel_hub_url.

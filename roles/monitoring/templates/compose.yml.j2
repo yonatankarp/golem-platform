@@ -49,8 +49,16 @@ services:
   # and trust the platform's own pair; the image's built-in pair is public, and
   # Dozzle falls back to it silently if DOZZLE_CERT names no file. The hub pushes
   # its alert rules and webhook (with the NAS relay's bearer token) here, and the
-  # agent keeps them in /data, which is tmpfs so they never reach golem's disk.
+  # agent keeps them in /data, which is tmpfs so they never reach golem's disk
+  # (the hub pushes them again whenever the agent reconnects).
   # The pin matches the NAS's Dozzle: hub and agent are bumped together.
+  #
+  # The agent dispatches those alerts itself, to the URL the hub pushed:
+  # http://alert-relay:<port>/alerts. extra_hosts points that name at the NAS's
+  # tailnet address, where a Tailscale Serve TCP forward reaches the NAS's alert
+  # relay, so the pushed URL works unchanged. DOZZLE_HOSTNAME is the host name
+  # the agent stamps on every event; the NAS relay pages events from host
+  # `golem` on the Golem Pushover app, so it must stay exactly that.
   dozzle-agent:
     image: docker.io/amir20/dozzle:v11.1.2@sha256:55204b375a03c92310d79b659b66217bd38f5675b361e2b5e7b4a03139bbb077
     restart: unless-stopped
@@ -65,7 +73,10 @@ services:
     depends_on:
       dozzle-socket-proxy:
         condition: service_healthy
+    # default is not internal: it is the route to the NAS's tailnet address.
     networks: [default, dozzle-docker-api]
+    extra_hosts:
+      - "alert-relay:{{ nas_tailnet_address }}"
     ports:
       - "{{ dozzle_agent_address }}:7007"
     labels:
@@ -76,6 +87,7 @@ services:
     environment:
       DOCKER_HOST: tcp://dozzle-socket-proxy:2375
       DOZZLE_CERT: /certs/cert.pem
+      DOZZLE_HOSTNAME: golem
       DOZZLE_KEY: /certs/key.pem
       DOZZLE_NO_ANALYTICS: "true"
     healthcheck:
