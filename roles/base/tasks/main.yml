@@ -1,0 +1,50 @@
+- name: Install base packages
+  ansible.builtin.apt:
+    name:
+      - unattended-upgrades
+      - zram-tools
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+# Wired is preferred without any metric here: dhcpcd adds +2000 to wireless
+# routes, so wlp3s0 (configured by the installer, PSK stored hashed) is only
+# the fallback. Failover measured 2026-09-28: 0% loss with enp9s0 down.
+- name: Configure the wired interface
+  ansible.builtin.copy:
+    dest: /etc/network/interfaces.d/enp9s0
+    content: |
+      allow-hotplug enp9s0
+      iface enp9s0 inet dhcp
+    mode: "0644"
+
+- name: Enable daily unattended upgrades
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+    mode: "0644"
+
+- name: Configure unattended upgrade origins and reboots
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/52golem-unattended
+    content: |
+      // Security is in Debian's default list; add point-release fixes and Tailscale.
+      Unattended-Upgrade::Origins-Pattern {
+        "origin=Debian,codename=${distro_codename}-updates";
+        "origin=Tailscale";
+      };
+      Unattended-Upgrade::Remove-Unused-Dependencies "true";
+      Unattended-Upgrade::Automatic-Reboot "true";
+      Unattended-Upgrade::Automatic-Reboot-Time "04:00";
+    mode: "0644"
+
+- name: Configure zram swap
+  ansible.builtin.copy:
+    dest: /etc/default/zramswap
+    content: |
+      ALGO=zstd
+      PERCENT=50
+    mode: "0644"
+  notify: Restart zramswap

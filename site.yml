@@ -1,0 +1,6 @@
+- name: Converge golem
+  hosts: golem
+  become: true
+  roles:
+    - base
+    - hardening

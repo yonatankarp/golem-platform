@@ -1,0 +1,12 @@
+all:
+  hosts:
+    golem:
+      ansible_host: golem.tail4e1ae8.ts.net
+      ansible_user: yonatan
+  vars:
+    admin_user: yonatan
+    lan_cidr: 192.168.0.0/24
+    agent_user: agent
+    # The agent must never starve Foundry: 8 GB RAM, 4 threads in total.
+    agent_memory_max: 3G
+    agent_cpu_quota: 200%

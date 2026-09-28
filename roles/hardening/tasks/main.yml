@@ -1,0 +1,84 @@
+- name: Read the admin's authorized keys
+  ansible.builtin.stat:
+    path: "/home/{{ admin_user }}/.ssh/authorized_keys"
+  register: hardening_admin_keys
+
+# Turning passwords off without a key in place is a lockout, and the only way
+# back is the physical console.
+- name: Refuse to disable password login without an authorized key
+  ansible.builtin.assert:
+    that: hardening_admin_keys.stat.exists and hardening_admin_keys.stat.size > 0
+    fail_msg: "/home/{{ admin_user }}/.ssh/authorized_keys is missing or empty"
+
+- name: Install ufw
+  ansible.builtin.apt:
+    name: ufw
+    state: present
+
+# Debian's sshd_config includes sshd_config.d first and the first value wins,
+# so this drop-in outranks the stock file.
+- name: Restrict SSH to key login by the admin
+  ansible.builtin.copy:
+    dest: /etc/ssh/sshd_config.d/10-golem.conf
+    content: |
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      PermitRootLogin no
+      AllowUsers {{ admin_user }}
+    mode: "0644"
+  notify: Reload ssh
+
+- name: Validate the SSH configuration
+  ansible.builtin.command: sshd -t
+  changed_when: false
+  check_mode: false
+
+# Docker-published ports bypass these rules entirely, so containers publish
+# nothing except onto the tailnet address.
+- name: Allow SSH from the LAN
+  community.general.ufw:
+    rule: allow
+    port: "22"
+    proto: tcp
+    from_ip: "{{ lan_cidr }}"
+
+- name: Allow everything arriving over Tailscale
+  community.general.ufw:
+    rule: allow
+    direction: in
+    interface: tailscale0
+
+- name: Deny other inbound traffic and enable the firewall
+  community.general.ufw:
+    state: enabled
+    policy: deny
+    direction: incoming
+
+- name: Create the agent user
+  ansible.builtin.user:
+    name: "{{ agent_user }}"
+    shell: /bin/bash
+    groups: []
+    append: false
+  register: hardening_agent
+
+# The agent has no sudo and is kept out of the docker group, which is root in
+# all but name. Everything it runs is capped through its user slice. Under
+# --check a not-yet-created user has no uid, so these two are skipped.
+- name: Create the agent's slice drop-in directory
+  ansible.builtin.file:
+    path: "/etc/systemd/system/user-{{ hardening_agent.uid }}.slice.d"
+    state: directory
+    mode: "0755"
+  when: hardening_agent.uid is defined
+
+- name: Cap the agent's memory and CPU
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/user-{{ hardening_agent.uid }}.slice.d/50-limits.conf"
+    content: |
+      [Slice]
+      MemoryMax={{ agent_memory_max }}
+      CPUQuota={{ agent_cpu_quota }}
+    mode: "0644"
+  when: hardening_agent.uid is defined
+  notify: Reload systemd
