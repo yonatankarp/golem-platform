@@ -1,3 +1,18 @@
+# The installer chose LANG=en_IL, which is not UTF-8, and Ansible refuses to
+# run under a non-UTF-8 locale. Keep the region, fix the encoding.
+- name: Generate the UTF-8 locale
+  community.general.locale_gen:
+    name: en_IL.UTF-8
+    state: present
+
+- name: Make the UTF-8 locale the system default
+  ansible.builtin.copy:
+    dest: /etc/default/locale
+    content: |
+      LANG=en_IL.UTF-8
+      LANGUAGE=en_IL:en
+    mode: "0644"
+
 - name: Install base packages
   ansible.builtin.apt:
     name:
