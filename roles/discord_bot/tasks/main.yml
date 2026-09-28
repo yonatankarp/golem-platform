@@ -1,0 +1,81 @@
+# The same guard as Foundry's: a template value saved unedited must not deploy.
+- name: Refuse placeholder Discord credentials
+  ansible.builtin.assert:
+    that:
+      - vault_discord_owner_id | string is match('^[0-9]{15,21}$')
+      - vault_discord_bot_token | length >= 50
+    fail_msg: >-
+      group_vars/all/vault_discord_bot.yml holds a placeholder or malformed value
+      (owner id is your numeric Discord user ID, token the bot token).
+    quiet: true
+  no_log: true
+
+# Ansible's pip module imports packaging from the system Python.
+- name: Install Python's venv support
+  ansible.builtin.apt:
+    name:
+      - python3-packaging
+      - python3-venv
+    state: present
+
+- name: Create the bot's directory
+  ansible.builtin.file:
+    path: /opt/discord-bot
+    state: directory
+    mode: "0755"
+
+# Root owns the code and its venv, so the agent the bot runs as cannot rewrite
+# the bot that decides who it answers.
+- name: Install discord.py into the bot's venv
+  ansible.builtin.pip:
+    name: discord.py==2.7.1
+    virtualenv: /opt/discord-bot/venv
+    virtualenv_command: python3 -m venv
+  # On a first --check the packages above are not installed yet, and below the
+  # unit file does not exist yet.
+  ignore_errors: "{{ ansible_check_mode }}"
+  notify: Restart discord-bot
+
+- name: Install the bot
+  ansible.builtin.copy:
+    src: bot.py
+    dest: /opt/discord-bot/bot.py
+    mode: "0644"
+  notify: Restart discord-bot
+
+# The bot creates its own state directory as the agent; one made here would
+# leave root owning whichever parents did not exist yet.
+- name: Create the agent's working directory
+  ansible.builtin.file:
+    path: "/home/{{ agent_user }}/work"
+    state: directory
+    owner: "{{ agent_user }}"
+    group: "{{ agent_user }}"
+    mode: "0750"
+
+- name: Render the bot's credentials
+  ansible.builtin.copy:
+    dest: /etc/discord-bot.env
+    content: |
+      DISCORD_BOT_TOKEN={{ vault_discord_bot_token }}
+      DISCORD_OWNER_ID={{ vault_discord_owner_id }}
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  notify: Restart discord-bot
+
+- name: Define the bot's service
+  ansible.builtin.template:
+    src: discord-bot.service.j2
+    dest: /etc/systemd/system/discord-bot.service
+    mode: "0644"
+  notify: Restart discord-bot
+
+- name: Enable and start the bot
+  ansible.builtin.systemd_service:
+    name: discord-bot
+    enabled: true
+    state: started
+    daemon_reload: true
+  ignore_errors: "{{ ansible_check_mode }}"

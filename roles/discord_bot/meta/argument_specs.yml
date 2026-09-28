@@ -1,0 +1,15 @@
+argument_specs:
+  main:
+    short_description: Discord front end for Claude Code, run as the agent
+    options:
+      agent_user:
+        type: str
+        required: true
+      vault_discord_bot_token:
+        type: str
+        required: true
+        no_log: true
+      vault_discord_owner_id:
+        type: str
+        required: true
+        no_log: true

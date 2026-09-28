@@ -1,0 +1,24 @@
+[Unit]
+Description=Discord front end for Claude Code
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User={{ agent_user }}
+Slice=agent.slice
+EnvironmentFile=/etc/discord-bot.env
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Environment=PYTHONUNBUFFERED=1
+# Fixed, because --resume finds a session by the directory it was started in.
+WorkingDirectory=/home/{{ agent_user }}/work
+ExecStart=/opt/discord-bot/venv/bin/python /opt/discord-bot/bot.py
+Restart=on-failure
+RestartSec=10
+# ProtectHome is deliberately unset: Claude Code writes its sessions and
+# credentials under the agent's home.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target
