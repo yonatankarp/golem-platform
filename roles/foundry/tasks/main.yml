@@ -4,12 +4,15 @@
   ansible.builtin.assert:
     that:
       - vault_cloudflare_tunnel_token is match('^eyJ[A-Za-z0-9_=-]{40,}$')
+      # A token decodes to one JSON object; a pasted extra character after it
+      # (seen 2026-09-28) still matches the pattern above but not this.
+      - (vault_cloudflare_tunnel_token | b64decode) is match('^\\{.*\\}$')
       - vault_foundry_admin_key | length >= 12
       - vault_foundry_username | length >= 2
       - vault_foundry_password | length >= 6
     fail_msg: >-
       group_vars/all/vault_foundry.yml holds a placeholder or malformed value
-      (tunnel token must be the eyJ... token, admin key at least 12 characters).
+      (tunnel token must be exactly the eyJ... token, nothing after it; admin key at least 12 characters).
     quiet: true
   no_log: true
 
