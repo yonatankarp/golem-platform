@@ -21,6 +21,16 @@
     - /srv/monitoring/beszel-agent
     - /srv/monitoring/dozzle-agent
 
+# Where the Dozzle agent keeps the alert rules the NAS hub pushed to it; it runs
+# as nobody, and the rules carry the relay's bearer token.
+- name: Create the Dozzle agent's data directory
+  ansible.builtin.file:
+    path: /srv/monitoring/dozzle-agent/data
+    state: directory
+    owner: "65534"
+    group: "65534"
+    mode: "0700"
+
 - name: Render the Beszel agent's credentials
   ansible.builtin.copy:
     dest: /srv/monitoring/.env

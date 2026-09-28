@@ -49,8 +49,11 @@ services:
   # and trust the platform's own pair; the image's built-in pair is public, and
   # Dozzle falls back to it silently if DOZZLE_CERT names no file. The hub pushes
   # its alert rules and webhook (with the NAS relay's bearer token) here, and the
-  # agent keeps them in /data, which is tmpfs so they never reach golem's disk
-  # (the hub pushes them again whenever the agent reconnects).
+  # agent saves them to /data/notifications.yml and reloads them at start. The
+  # hub re-sends them only when it restarts or a rule changes, never when an
+  # agent comes back (Dozzle v11.1.2 retriable_client_manager.go), so /data is
+  # persistent: a tmpfs here lost every rule on each recreate (seen 2026-09-28).
+  # The price is the relay's bearer token on golem's disk, root-only.
   # The pin matches the NAS's Dozzle: hub and agent are bumped together.
   #
   # The agent dispatches those alerts itself, to the URL the hub pushed:
@@ -68,7 +71,6 @@ services:
     read_only: true
     tmpfs:
       - /tmp:mode=1777
-      - /data:mode=1777
     security_opt: [no-new-privileges:true]
     depends_on:
       dozzle-socket-proxy:
@@ -82,6 +84,7 @@ services:
     labels:
       golem.dozzle-agent.certificate-sha256: "{{ vault_dozzle_agent_certificate | hash('sha256') }}"
     volumes:
+      - /srv/monitoring/dozzle-agent/data:/data
       - /srv/monitoring/dozzle-agent/cert.pem:/certs/cert.pem:ro
       - /srv/monitoring/dozzle-agent/key.pem:/certs/key.pem:ro
     environment:
