@@ -1,0 +1,4 @@
+# Only boot strictly needs it: during a converge Tailscale already holds the address.
+- name: Apply the non-local bind setting
+  ansible.builtin.command: /usr/sbin/sysctl -p /etc/sysctl.d/60-golem-nonlocal-bind.conf
+  changed_when: true

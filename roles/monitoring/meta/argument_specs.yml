@@ -1,6 +1,6 @@
 argument_specs:
   main:
-    short_description: Beszel agent reporting golem to the NAS hub
+    short_description: Beszel and Dozzle agents reporting golem to the NAS
     options:
       beszel_hub_url:
         type: str
@@ -12,6 +12,19 @@ argument_specs:
         type: str
         required: true
       vault_beszel_universal_token:
+        type: str
+        required: true
+        no_log: true
+      dozzle_agent_address:
+        type: str
+        required: true
+        description: host:port the Dozzle agent publishes on; golem's tailnet address.
+      # Copies of NAS vault values under the same names: one self-signed pair
+      # both ends present and trust. Rotating it on the NAS means updating it here.
+      vault_dozzle_agent_certificate:
+        type: str
+        required: true
+      vault_dozzle_agent_private_key:
         type: str
         required: true
         no_log: true

@@ -45,6 +45,72 @@ services:
       timeout: 3s
       retries: 3
 
+  # Dialled by the NAS's Dozzle to show golem's container logs. Both ends present
+  # and trust the platform's own pair; the image's built-in pair is public, and
+  # Dozzle falls back to it silently if DOZZLE_CERT names no file. The hub pushes
+  # its alert rules and webhook (with the NAS relay's bearer token) here, and the
+  # agent keeps them in /data, which is tmpfs so they never reach golem's disk.
+  # The pin matches the NAS's Dozzle: hub and agent are bumped together.
+  dozzle-agent:
+    image: docker.io/amir20/dozzle:v11.1.2@sha256:55204b375a03c92310d79b659b66217bd38f5675b361e2b5e7b4a03139bbb077
+    restart: unless-stopped
+    logging: *logging
+    command: [agent]
+    user: "65534:65534"
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777
+      - /data:mode=1777
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      dozzle-socket-proxy:
+        condition: service_healthy
+    networks: [default, dozzle-docker-api]
+    ports:
+      - "{{ dozzle_agent_address }}:7007"
+    labels:
+      golem.dozzle-agent.certificate-sha256: "{{ vault_dozzle_agent_certificate | hash('sha256') }}"
+    volumes:
+      - /srv/monitoring/dozzle-agent/cert.pem:/certs/cert.pem:ro
+      - /srv/monitoring/dozzle-agent/key.pem:/certs/key.pem:ro
+    environment:
+      DOCKER_HOST: tcp://dozzle-socket-proxy:2375
+      DOZZLE_CERT: /certs/cert.pem
+      DOZZLE_KEY: /certs/key.pem
+      DOZZLE_NO_ANALYTICS: "true"
+    healthcheck:
+      test: [CMD, /dozzle, healthcheck]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # Dozzle needs events and logs, which the Beszel agent's proxy denies, so it
+  # gets its own rather than widening what the Beszel agent can read. Like that
+  # one it sits on an internal network shared with its agent alone.
+  dozzle-socket-proxy:
+    image: lscr.io/linuxserver/socket-proxy:3.4.5@sha256:ca6c0301a652232d02cb0ff9f1c5d20d9b339f391e1c1dffaae6ef3bfc59d009
+    restart: unless-stopped
+    logging: *logging
+    networks: [dozzle-docker-api]
+    read_only: true
+    tmpfs: [/run]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      ALLOW_LOGS: "1"
+      CONTAINERS: "1"
+      EVENTS: "1"
+      INFO: "1"
+      POST: "0"
+    healthcheck:
+      test: [CMD-SHELL, "wget -q -O - http://127.0.0.1:2375/_ping | grep -qx OK"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
 networks:
   docker-api:
+    internal: true
+  dozzle-docker-api:
     internal: true

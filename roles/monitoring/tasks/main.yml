@@ -1,3 +1,16 @@
+# An empty or truncated paste would otherwise start the agent on Dozzle's
+# built-in pair, which is public. The values themselves are never printed.
+- name: Refuse placeholder Dozzle agent credentials
+  ansible.builtin.assert:
+    that:
+      - vault_dozzle_agent_certificate is search('(?s)^\\s*-----BEGIN CERTIFICATE-----\\s.+\\s-----END CERTIFICATE-----\\s*$')
+      - vault_dozzle_agent_private_key is search('(?s)^\\s*-----BEGIN (RSA |EC )?PRIVATE KEY-----\\s.+\\s-----END (RSA |EC )?PRIVATE KEY-----\\s*$')
+    fail_msg: >-
+      group_vars/all/vault_monitoring.yml holds a placeholder or malformed Dozzle
+      agent value (both must be complete PEM blocks, BEGIN to END line).
+    quiet: true
+  no_log: true
+
 - name: Create the monitoring directories
   ansible.builtin.file:
     path: "{{ item }}"
@@ -6,6 +19,7 @@
   loop:
     - /srv/monitoring
     - /srv/monitoring/beszel-agent
+    - /srv/monitoring/dozzle-agent
 
 - name: Render the Beszel agent's credentials
   ansible.builtin.copy:
@@ -15,6 +29,34 @@
       TOKEN={{ vault_beszel_universal_token }}
     mode: "0600"
   no_log: true
+
+# The agent runs as nobody, so the pair is nobody's. Mounted file by file, so
+# the compose template labels the agent with the certificate's hash: a rotated
+# pair then recreates the container instead of leaving it on the old inode.
+- name: Render the Dozzle agent's TLS pair
+  ansible.builtin.copy:
+    dest: "/srv/monitoring/dozzle-agent/{{ item.name }}"
+    content: "{{ item.content }}"
+    owner: "65534"
+    group: "65534"
+    mode: "0400"
+  loop:
+    - {name: cert.pem, content: "{{ vault_dozzle_agent_certificate }}"}
+    - {name: key.pem, content: "{{ vault_dozzle_agent_private_key }}"}
+  loop_control:
+    label: "{{ item.name }}"
+  no_log: true
+
+# The agent publishes on the tailnet address, which tailscale0 may not hold yet
+# when dockerd restores containers at boot; without this the bind fails and the
+# agent stays down until something restarts it.
+- name: Allow binding the tailnet address before Tailscale assigns it
+  ansible.builtin.copy:
+    dest: /etc/sysctl.d/60-golem-nonlocal-bind.conf
+    content: |
+      net.ipv4.ip_nonlocal_bind = 1
+    mode: "0644"
+  notify: Apply the non-local bind setting
 
 - name: Render the monitoring stack
   ansible.builtin.template:

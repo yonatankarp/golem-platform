@@ -28,7 +28,7 @@ source.
 |---|---|
 | `vault_foundry.yml` | `vault_foundry_username`, `vault_foundry_password` (foundryvtt.com), `vault_foundry_admin_key` (Foundry's /setup), `vault_cloudflare_tunnel_token` (tunnel `foundry`) |
 | `vault_discord_bot.yml` | `vault_discord_bot_token` (Developer Portal -> Bot), `vault_discord_owner_id` (your Discord user ID, quoted) |
-| `vault_monitoring.yml` | `vault_beszel_agent_key`, `vault_beszel_universal_token` -- copies of the NAS vault values of the same names; rotating them there means updating them here |
+| `vault_monitoring.yml` | `vault_beszel_agent_key`, `vault_beszel_universal_token`, `vault_dozzle_agent_certificate`, `vault_dozzle_agent_private_key` (the Dozzle agent's mTLS pair, PEM) -- copies of the NAS vault values of the same names; rotating them there means updating them here and converging both hosts |
 
 Create or change one on golem:
 
