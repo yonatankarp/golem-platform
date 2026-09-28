@@ -32,6 +32,13 @@
     state: present
     update_cache: true
 
+- name: Let unattended-upgrades update Claude Code
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/54golem-claude-code
+    content: |
+      Unattended-Upgrade::Origins-Pattern { "origin=Anthropic"; };
+    mode: "0644"
+
 # The first install came from the curl installer; nothing may shadow the
 # packaged binary on the agent's PATH.
 - name: Remove the curl-installed Claude Code
