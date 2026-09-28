@@ -1,8 +1,9 @@
 all:
   hosts:
     golem:
-      ansible_host: golem.tail4e1ae8.ts.net
-      ansible_user: yonatan
+      # Ansible runs on golem itself: the per-service vault files exist only
+      # there (group_vars/all/vault_*.yml, gitignored), never in git.
+      ansible_connection: local
   vars:
     admin_user: yonatan
     lan_cidr: 192.168.0.0/24

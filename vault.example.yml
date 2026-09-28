@@ -1,7 +1,0 @@
-# Keys vault.yml must hold. Create it with: ansible-vault create vault.yml
-vault_foundry_username: ""        # foundryvtt.com account
-vault_foundry_password: ""
-vault_foundry_admin_key: ""       # password for Foundry's /setup page
-vault_cloudflare_tunnel_token: "" # Zero Trust -> Networks -> Tunnels -> golem
-vault_beszel_agent_key: ""        # copy of the NAS vault value, same name
-vault_beszel_universal_token: ""  # copy of the NAS vault value, same name

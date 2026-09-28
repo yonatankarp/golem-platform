@@ -1,2 +1,4 @@
 .collections/
 *.retry
+# Secrets live only on golem, one encrypted file per service (see README).
+group_vars/all/vault_*.yml
