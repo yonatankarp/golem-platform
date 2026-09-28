@@ -1,0 +1,39 @@
+- name: Add Docker's apt repository
+  ansible.builtin.deb822_repository:
+    name: docker
+    types: deb
+    uris: https://download.docker.com/linux/debian
+    suites: "{{ ansible_facts['distribution_release'] }}"
+    components: stable
+    signed_by: https://download.docker.com/linux/debian/gpg
+
+- name: Install Docker Engine and the Compose plugin
+  ansible.builtin.apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-compose-plugin
+    state: present
+    update_cache: true
+
+# Rotated logs so a chatty container cannot fill the 500 GB disk; live-restore
+# keeps containers running through a daemon upgrade by unattended-upgrades.
+- name: Configure the Docker daemon
+  ansible.builtin.copy:
+    dest: /etc/docker/daemon.json
+    content: |
+      {
+        "log-driver": "json-file",
+        "log-opts": {"max-size": "10m", "max-file": "3"},
+        "live-restore": true
+      }
+    mode: "0644"
+  notify: Restart docker
+
+- name: Let unattended-upgrades update Docker
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/53golem-docker
+    content: |
+      Unattended-Upgrade::Origins-Pattern { "origin=Docker"; };
+    mode: "0644"
