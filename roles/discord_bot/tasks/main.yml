@@ -53,6 +53,16 @@
     group: "{{ agent_user }}"
     mode: "0750"
 
+# Claude Code reads CLAUDE.md from its working directory at the start of every
+# session, so each Discord thread starts knowing who it is and where it runs.
+- name: Brief the agent through its working directory's CLAUDE.md
+  ansible.builtin.copy:
+    src: CLAUDE.md
+    dest: "/home/{{ agent_user }}/work/CLAUDE.md"
+    owner: "{{ agent_user }}"
+    group: "{{ agent_user }}"
+    mode: "0644"
+
 - name: Render the bot's credentials
   ansible.builtin.copy:
     dest: /etc/discord-bot.env
