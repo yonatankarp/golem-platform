@@ -1,0 +1,56 @@
+# golem's first install (2026-09-27) was by hand: a one-line tailscale.list
+# signed by a keyring in /usr/share/keyrings. apt refuses to update at all when
+# one repository is listed twice with different Signed-By values, so the old
+# pair goes before the managed source is written.
+- name: Remove the hand-installed Tailscale source
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/apt/sources.list.d/tailscale.list
+    - /usr/share/keyrings/tailscale-archive-keyring.gpg
+
+# base's unattended-upgrades config already allows origin=Tailscale.
+- name: Add Tailscale's apt repository
+  ansible.builtin.deb822_repository:
+    name: tailscale
+    types: deb
+    uris: https://pkgs.tailscale.com/stable/debian
+    suites: "{{ ansible_facts['distribution_release'] }}"
+    components: main
+    signed_by: "https://pkgs.tailscale.com/stable/debian/{{ ansible_facts['distribution_release'] }}.noarmor.gpg"
+
+- name: Install Tailscale
+  ansible.builtin.apt:
+    name: tailscale
+    state: present
+    update_cache: true
+
+- name: Run tailscaled at boot
+  ansible.builtin.systemd_service:
+    name: tailscaled
+    enabled: true
+    state: started
+
+# Logging in is a one-time human step (a login link, approved in the admin
+# console, where key expiry is disabled too), so the role checks for it rather
+# than performing it. Everything golem is reached by, and everything it reaches
+# on the NAS, goes over the tailnet.
+- name: Read Tailscale's state
+  ansible.builtin.command: tailscale status --json
+  register: tailscale_status
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Require golem to be logged in to the tailnet
+  ansible.builtin.assert:
+    that:
+      - tailscale_status.rc == 0
+      - (tailscale_status.stdout | from_json).BackendState == 'Running'
+    fail_msg: >-
+      Tailscale is installed but not logged in. On golem run
+      `sudo tailscale up --hostname=golem`, open the link it prints, then
+      disable key expiry for golem in the admin console and re-run.
+    quiet: true
+  when: not ansible_check_mode or tailscale_status.rc == 0

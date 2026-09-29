@@ -3,6 +3,7 @@
   become: true
   roles:
     - base
+    - tailscale
     - hardening
     - docker
     - agent
