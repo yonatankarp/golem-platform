@@ -38,6 +38,12 @@
 # resolver forwards from the host's namespace, so any nameserver will do: wait
 # for one, and start anyway after 90 s rather than hold Docker down on a dead
 # network.
+- name: Create Docker's systemd drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/docker.service.d
+    state: directory
+    mode: "0755"
+
 - name: Start Docker only once the host has a nameserver
   ansible.builtin.copy:
     dest: /etc/systemd/system/docker.service.d/wait-for-dns.conf
