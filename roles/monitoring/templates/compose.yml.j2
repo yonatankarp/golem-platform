@@ -27,6 +27,13 @@ services:
       # agent first registers: an agent the hub already knows by its fingerprint
       # keeps its record's name, which nas-platform's Beszel role renames.
       SYSTEM_NAME: Golem
+    # The check the NAS's agents run on this same image.
+    healthcheck:
+      test: [CMD, /agent, health]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # CONTAINERS serves /containers/{id}/json, which includes every container's
   # environment -- the tunnel token among them. So this proxy sits on an
