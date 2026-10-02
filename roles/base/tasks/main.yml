@@ -5,13 +5,23 @@
     name: en_IL.UTF-8
     state: present
 
+# On trixie /etc/locale.conf is the real file: tmpfiles.d/debian.conf
+# (L+) re-links /etc/default/locale to it at every boot, so a regular file
+# written there is reverted on reboot.
 - name: Make the UTF-8 locale the system default
   ansible.builtin.copy:
-    dest: /etc/default/locale
+    dest: /etc/locale.conf
     content: |
       LANG=en_IL.UTF-8
       LANGUAGE=en_IL:en
     mode: "0644"
+
+- name: Keep /etc/default/locale the link tmpfiles expects
+  ansible.builtin.file:
+    path: /etc/default/locale
+    src: ../locale.conf
+    state: link
+    force: true
 
 - name: Install base packages
   ansible.builtin.apt:
