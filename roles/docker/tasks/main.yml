@@ -31,6 +31,21 @@
     mode: "0644"
   notify: Restart docker
 
+# dhcpcd writes /etc/resolv.conf only once it holds a lease, and Docker can start
+# before that: on the 2026-10-02 04:00 automatic reboot it started 8 s in, gave
+# five containers an embedded resolver with no upstream, and they kept it until
+# recreated -- cloudflared crash-looped all night on "server misbehaving". So
+# wait for an IPv4 nameserver (Compose networks cannot reach the IPv6 ones), and
+# start anyway after 90 s rather than hold Docker down on a dead network.
+- name: Start Docker only once the host has a nameserver
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/docker.service.d/wait-for-dns.conf
+    content: |
+      [Service]
+      ExecStartPre=-/usr/bin/timeout 90 /bin/sh -c 'until grep -Eq "^nameserver [0-9]+[.]" /etc/resolv.conf; do sleep 1; done'
+    mode: "0644"
+  notify: Reload systemd
+
 - name: Let unattended-upgrades update Docker
   ansible.builtin.copy:
     dest: /etc/apt/apt.conf.d/53golem-docker
