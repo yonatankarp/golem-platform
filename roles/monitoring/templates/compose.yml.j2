@@ -8,9 +8,20 @@ services:
   # Dials the NAS's Beszel hub outbound and registers itself with the hub's
   # universal token, so nothing on the NAS has to be told about golem first.
   agent:
-    image: ghcr.io/henrygd/beszel/beszel-agent:0.20.0@sha256:2c3b2d781a8bcdb464704c0024baab5486d238d40871b67c84d906d34791c490
+    # :alpine because the base image has no smartctl (beszel-docs guide/smart-data).
+    image: ghcr.io/henrygd/beszel/beszel-agent:0.20.0-alpine@sha256:4a517bfbc72255bf976d2a968841a9839621b4279727041ab57df8c668a629cb
     restart: unless-stopped
     logging: *logging
+    # S.M.A.R.T., as the NAS's agent reads its bays: smartctl's SG_IO passthrough
+    # to the SATA disks needs RAWIO. `:r` refuses a write-open and nothing more:
+    # RAWIO lets SG_IO send any ATA command, WRITE included, through it.
+    cap_add: [CAP_SYS_RAWIO]
+    # By id, so the kernel reordering sda/sdb cannot swap them; each keeps the
+    # name it has on the host today. A replaced disk means editing these lines,
+    # or the agent will not start.
+    devices:
+      - /dev/disk/by-id/ata-SanDisk_SSD_U100_16GB_122162300480:/dev/sda:r
+      - /dev/disk/by-id/ata-Samsung_SSD_850_EVO_500GB_S2RBNX0J282648P:/dev/sdb:r
     depends_on:
       socket-proxy:
         condition: service_healthy
