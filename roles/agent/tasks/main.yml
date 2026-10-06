@@ -110,13 +110,37 @@
           # Write and Edit run outside the sandbox, and bypassPermissions lets
           # them write Claude's own config. User and project settings can add
           # sandbox exclusions and MCP servers, and a session sources ~/.bashrc
-          # as it starts, all outside the sandbox. So the file tools write no
-          # dotfile in the agent's home, nor the settings of ~/work, where
-          # claude starts. Deny rules hold in every permission mode.
-          - Edit(~/.*)
-          - Edit(~/.*/**)
+          # as it starts, all outside the sandbox. So the file tools write
+          # nothing Claude Code or bash loads code or settings from. Deny rules
+          # hold in every permission mode, and no allow rule can carve a path
+          # back out of one, so each is narrow enough to leave auto memory
+          # under ~/.claude/projects writable. The patterns are gitignore's:
+          # `*` stays within one path segment, there are no braces, and a
+          # pattern that matches a directory covers everything in it, which is
+          # why ~/.* would also take ~/.claude/projects (measured).
+          - Edit(~/.bash*)
+          - Edit(~/.profile)
+          - Edit(~/.gitconfig)
+          - Edit(~/.claude/*.json)
+          - Edit(~/.claude/*.md)
+          - Edit(~/.claude/agents/**)
+          - Edit(~/.claude/commands/**)
+          - Edit(~/.claude/hooks/**)
+          - Edit(~/.claude/output-styles/**)
+          - Edit(~/.claude/plugins/**)
+          - Edit(~/.claude/rules/**)
+          - Edit(~/.claude/skills/**)
+          - Edit(~/.claude/workflows/**)
+          - Edit(~/.config/**)
+          - Edit(~/.local/**)
+          - Edit(~/.ssh/**)
           - Edit(~/work/.claude/**)
           - Edit(~/work/.mcp.json)
+          # Claude Code runs git itself, unsandboxed, in ~/work; a core.fsmonitor
+          # or a hook would run with it. The sandbox guards only ~/work/.git,
+          # not the repositories cloned beneath it.
+          - Edit(~/work/**/.git/config)
+          - Edit(~/work/**/.git/hooks/**)
       # Hooks run outside the sandbox; none are deployed, so none run.
       allowManagedHooksOnly: true
 
