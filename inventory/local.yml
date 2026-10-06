@@ -20,3 +20,4 @@ all:
     # rather than a name for the same reason as beszel_hub_url.
     dozzle_agent_address: 100.104.25.70:7007
     foundry_hostname: dnd.yonatankarp.com
+    lorekeeper_sync_hostname: lorekeeper.yonatankarp.com

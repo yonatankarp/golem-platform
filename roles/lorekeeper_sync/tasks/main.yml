@@ -1,0 +1,46 @@
+# The same guard as Foundry's: a template value saved unedited must not deploy.
+- name: Refuse a placeholder tunnel token
+  ansible.builtin.assert:
+    that:
+      - vault_lorekeeper_sync_tunnel_token is match('^eyJ[A-Za-z0-9_=-]{40,}$')
+      - (vault_lorekeeper_sync_tunnel_token | b64decode) is match('^\\{.*\\}$')
+    fail_msg: >-
+      group_vars/all/vault_lorekeeper_sync.yml holds a placeholder or malformed
+      value (the tunnel token must be exactly the eyJ... token, nothing after it).
+    quiet: true
+  no_log: true
+
+- name: Create the Lorekeeper sync directory
+  ansible.builtin.file:
+    path: /srv/lorekeeper-sync
+    state: directory
+    mode: "0750"
+
+# Holds sync.db and its WAL: every room's encrypted files.
+- name: Create the sync server's data directory
+  ansible.builtin.file:
+    path: /srv/lorekeeper-sync/data
+    state: directory
+    owner: "{{ lorekeeper_sync_uid }}"
+    group: "{{ lorekeeper_sync_gid }}"
+    mode: "0750"
+
+- name: Render the tunnel token
+  ansible.builtin.copy:
+    dest: /srv/lorekeeper-sync/.env
+    content: |
+      TUNNEL_TOKEN={{ vault_lorekeeper_sync_tunnel_token }}
+    mode: "0600"
+  no_log: true
+
+- name: Render the Lorekeeper sync stack
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: /srv/lorekeeper-sync/compose.yml
+    mode: "0644"
+
+- name: Deploy the Lorekeeper sync stack
+  community.docker.docker_compose_v2:
+    project_src: /srv/lorekeeper-sync
+    state: present
+    wait: true

@@ -1,0 +1,17 @@
+argument_specs:
+  main:
+    short_description: Lorekeeper sync server published through its own Cloudflare Tunnel
+    options:
+      lorekeeper_sync_hostname:
+        type: str
+        required: true
+      lorekeeper_sync_uid:
+        type: int
+        description: The image's non-root uid; owns the data directory.
+      lorekeeper_sync_gid:
+        type: int
+        description: The image's non-root gid; owns the data directory.
+      vault_lorekeeper_sync_tunnel_token:
+        type: str
+        required: true
+        no_log: true

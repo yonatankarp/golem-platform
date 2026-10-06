@@ -1,0 +1,4 @@
+# The image's non-root user. The compose file runs the server as this pair too,
+# so the data directory's owner matches even if the image's USER changes.
+lorekeeper_sync_uid: 10001
+lorekeeper_sync_gid: 10001
