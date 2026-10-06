@@ -54,3 +54,21 @@
       disable key expiry for golem in the admin console and re-run.
     quiet: true
   when: not ansible_check_mode or tailscale_status.rc == 0
+
+# dhcpcd owns /etc/resolv.conf. With --accept-dns on, tailscaled wrote MagicDNS
+# there too, and the two took turns: dhcpcd rewrote it every ~10 s on router
+# advertisements, tailscaled logged it trampled 13 times on 2026-10-06 and gave
+# up. Each container's resolver kept whichever upstream was there when it was
+# created. Nothing on golem resolves *.ts.net (NAS by IP, see the inventory),
+# and quad-100 forwarded everything else to the router anyway.
+- name: Read Tailscale's preferences
+  ansible.builtin.command: tailscale debug prefs
+  register: tailscale_prefs
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Leave /etc/resolv.conf to dhcpcd
+  ansible.builtin.command: tailscale set --accept-dns=false
+  when: tailscale_prefs.rc != 0 or (tailscale_prefs.stdout | from_json).CorpDNS
+  changed_when: true
