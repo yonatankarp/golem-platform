@@ -8,7 +8,8 @@ all:
     admin_user: yonatan
     lan_cidr: 192.168.0.0/24
     # The router: golem's only resolver, which dhcpcd writes to /etc/resolv.conf
-    # (tailscale's role turns MagicDNS off); the agent may reach it on 53 only.
+    # (the tailscale role sets --accept-dns=false); the agent may reach it on
+    # 53 only.
     lan_resolver: 192.168.0.1
     agent_user: agent
     # The agent must never starve Foundry: 8 GB RAM, 4 threads in total.
