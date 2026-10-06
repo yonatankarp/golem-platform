@@ -49,6 +49,101 @@
     - "/home/{{ agent_user }}/.local/bin/claude"
     - "/home/{{ agent_user }}/.local/share/claude"
 
+# Claude runs with bypassPermissions and reads the web, so a prompt injection
+# can run anything the agent user can. Managed policy is the one settings layer
+# root owns and no user, project or --settings file can loosen, so the limits
+# live here rather than in ~/.claude, which the agent can rewrite.
+- name: Create Claude Code's managed policy directory
+  ansible.builtin.file:
+    path: /etc/claude-code
+    state: directory
+    mode: "0755"
+
+- name: Contain the agent's Claude Code sessions
+  ansible.builtin.copy:
+    dest: /etc/claude-code/managed-settings.json
+    content: "{{ agent_claude_policy | to_nice_json }}\n"
+    mode: "0644"
+  vars:
+    agent_claude_policy:
+      sandbox:
+        enabled: true
+        # A sandbox that cannot start must stop claude, not quietly run Bash
+        # unsandboxed; the bot then reports the failure on Discord.
+        failIfUnavailable: true
+        # No dangerouslyDisableSandbox retry: in bypassPermissions it would run
+        # unprompted. This also makes the sandbox admin-required, so a cloned
+        # repository's settings cannot loosen it.
+        allowUnsandboxedCommands: false
+        enableWeakerNestedSandbox: false
+        enableWeakerNetworkIsolation: false
+        filesystem:
+          # PrivateTmp makes /tmp the bot's own, emptied on restart.
+          allowWrite: [/tmp]
+        network:
+          # Without the lock, bypassPermissions lets sandboxed commands reach
+          # any host; with it, only this list, and no other file can add to it.
+          # WebFetch and WebSearch are not sandboxed and stay unrestricted.
+          allowManagedDomainsOnly: true
+          allowAllUnixSockets: false
+          allowedDomains:
+            - github.com
+            - "*.github.com"
+            - "*.githubusercontent.com"
+            # Where GitHub Actions serves job logs and artifacts, for gh run.
+            - "*.blob.core.windows.net"
+            - pypi.org
+            - files.pythonhosted.org
+            - registry.npmjs.org
+            - nodejs.org
+            - galaxy.ansible.com
+            - ghcr.io
+            - registry-1.docker.io
+            - auth.docker.io
+      permissions:
+        deny:
+          # Read denials also feed the sandbox's denyRead, so neither the Read
+          # tool nor Bash sees Claude's login. (gh's token stays readable: Ororo
+          # works on GitHub as Yonatan by his decision.)
+          - Read(~/.claude/.credentials.json)
+          - Read(~/.claude.json)
+          # Write and Edit run outside the sandbox, and bypassPermissions lets
+          # them write Claude's own config. User and project settings can add
+          # sandbox exclusions and MCP servers, and a session sources ~/.bashrc
+          # as it starts, all outside the sandbox. So the file tools write
+          # nothing Claude Code or bash loads code or settings from. Deny rules
+          # hold in every permission mode, and no allow rule can carve a path
+          # back out of one, so each is narrow enough to leave auto memory
+          # under ~/.claude/projects writable. The patterns are gitignore's:
+          # `*` stays within one path segment, there are no braces, and a
+          # pattern that matches a directory covers everything in it, which is
+          # why ~/.* would also take ~/.claude/projects (measured).
+          - Edit(~/.bash*)
+          - Edit(~/.profile)
+          - Edit(~/.gitconfig)
+          - Edit(~/.claude/*.json)
+          - Edit(~/.claude/*.md)
+          - Edit(~/.claude/agents/**)
+          - Edit(~/.claude/commands/**)
+          - Edit(~/.claude/hooks/**)
+          - Edit(~/.claude/output-styles/**)
+          - Edit(~/.claude/plugins/**)
+          - Edit(~/.claude/rules/**)
+          - Edit(~/.claude/skills/**)
+          - Edit(~/.claude/workflows/**)
+          - Edit(~/.config/**)
+          - Edit(~/.local/**)
+          - Edit(~/.ssh/**)
+          - Edit(~/work/.claude/**)
+          - Edit(~/work/.mcp.json)
+          # Claude Code runs git itself, unsandboxed, in ~/work; a core.fsmonitor
+          # or a hook would run with it. The sandbox guards only ~/work/.git,
+          # not the repositories cloned beneath it.
+          - Edit(~/work/**/.git/config)
+          - Edit(~/work/**/.git/hooks/**)
+      # Hooks run outside the sandbox; none are deployed, so none run.
+      allowManagedHooksOnly: true
+
 - name: Prove Claude Code runs on this CPU
   ansible.builtin.command: claude --version
   become: true

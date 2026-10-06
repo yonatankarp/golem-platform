@@ -7,12 +7,16 @@ all:
   vars:
     admin_user: yonatan
     lan_cidr: 192.168.0.0/24
+    # The router: golem's only resolver, which dhcpcd writes to /etc/resolv.conf
+    # (the tailscale role sets --accept-dns=false); the agent may reach it on
+    # 53 only.
+    lan_resolver: 192.168.0.1
     agent_user: agent
     # The agent must never starve Foundry: 8 GB RAM, 4 threads in total.
     agent_memory_max: 3G
     agent_cpu_quota: 200%
-    # The NAS's tailnet IP, not its MagicDNS name: golem's resolver is the
-    # router, so containers on a Compose network cannot resolve *.ts.net.
+    # The NAS's tailnet IP, not its MagicDNS name: golem resolves through the
+    # router, so neither golem nor its containers can resolve *.ts.net.
     nas_tailnet_address: 100.102.136.50
     beszel_hub_url: "http://{{ nas_tailnet_address }}:8090"
     # Where the NAS's Dozzle dials golem's Dozzle agent: golem's tailnet IP,
@@ -20,4 +24,8 @@ all:
     # rather than a name for the same reason as beszel_hub_url.
     dozzle_agent_address: 100.104.25.70:7007
     foundry_hostname: dnd.yonatankarp.com
+    # Fixed so the firewall can tell Foundry's traffic apart (hardening's
+    # golem-foundry-egress). Outside Docker's default pools (172.17-31/16,
+    # 192.168/16), so no other network can be handed it.
+    foundry_subnet: 10.99.0.0/24
     lorekeeper_sync_hostname: lorekeeper.yonatankarp.com

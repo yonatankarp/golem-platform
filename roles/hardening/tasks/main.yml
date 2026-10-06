@@ -16,7 +16,8 @@
     state: present
 
 # Debian's sshd_config includes sshd_config.d first and the first value wins,
-# so this drop-in outranks the stock file.
+# so this drop-in outranks the stock file. AllowTcpForwarding stays at its
+# default (yes): an editor's remote-SSH session tunnels through it.
 - name: Restrict SSH to key login by the admin
   ansible.builtin.copy:
     dest: /etc/ssh/sshd_config.d/10-golem.conf
@@ -25,6 +26,8 @@
       KbdInteractiveAuthentication no
       PermitRootLogin no
       AllowUsers {{ admin_user }}
+      X11Forwarding no
+      AllowAgentForwarding no
     mode: "0644"
   notify: Reload ssh
 
@@ -97,3 +100,71 @@
         --working-directory=/home/{{ agent_user }} --pty --wait --collect \
         /bin/bash -l
     mode: "0755"
+
+# The agent acts on whatever a Discord message talks it into, so it is kept off
+# everything private: as the agent, golem reached both socket-proxies
+# (172.19.0.3:2375 and 172.21.0.2:2375, i.e. every container's environment),
+# the NAS's tailnet services and the router (measured 2026-10-06). It needs the
+# internet and DNS, nothing more, so DNS stays open to the router, the IPv4
+# nameserver dhcpcd writes. REJECT, so a blocked tool fails at once. After the
+# loopback and ESTABLISHED accepts, so only new connections are judged. The
+# owner match needs the user, hence after creating it.
+#
+# IPv6 is refused outright, DNS apart: the LAN has a global prefix the ISP
+# delegates and may change (2a02:8109:a28d:2400::/64 on 2026-10-06), on which
+# the agent reached about 15 hosts, and the resolvers dhcpcd writes sit in it
+# and at the ISP. Everything the agent needs answers on IPv4 as well, and a
+# REJECT sends it there at once (fallback tested as the agent, 2026-10-06).
+- name: Keep the agent off the LAN, the tailnet and Docker's networks
+  ansible.builtin.blockinfile:
+    path: "/etc/ufw/{{ item.file }}"
+    marker: "# {mark} golem agent egress"
+    insertafter: "^-A {{ item.chain }} -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT$"
+    block: |
+      :golem-agent-egress - [0:0]
+      -A {{ item.chain }} -m owner --uid-owner {{ agent_user }} -m conntrack --ctstate NEW -d {{ item.private }} -j golem-agent-egress
+      -A golem-agent-egress -p udp --dport 53 -d {{ item.resolvers }} -j RETURN
+      -A golem-agent-egress -p tcp --dport 53 -d {{ item.resolvers }} -j RETURN
+      -A golem-agent-egress -m limit --limit 3/min --limit-burst 10 -j LOG --log-prefix "[golem-agent-egress] "
+      -A golem-agent-egress -j REJECT
+    validate: "/usr/sbin/{{ item.restore }} --noflush --test %s"
+  loop:
+    - file: before.rules
+      chain: ufw-before-output
+      private: "{{ hardening_private_ipv4 }}"
+      resolvers: "{{ lan_resolver }}"
+      restore: iptables-restore
+    - file: before6.rules
+      chain: ufw6-before-output
+      private: ::/0
+      resolvers: ::/0
+      restore: ip6tables-restore
+  loop_control:
+    label: "{{ item.file }}"
+  notify: Reload ufw
+
+# Foundry is the one workload the internet reaches, and its traffic leaves
+# through the host: from its namespace the NAS (100.102.136.50:443 and :8090),
+# the router and the Dozzle agent's published port all answered (measured
+# 2026-10-06). It needs the internet only; its DNS goes through dockerd's
+# resolver, which forwards from the host's namespace, not from this subnet.
+# Not in DOCKER-USER: filter FORWARD runs ts-forward first whenever tailscaled
+# started after dockerd (as it has since its 2026-10-06 upgrade), and
+# ts-forward accepts everything leaving on tailscale0, the NAS included.
+# mangle FORWARD runs before any filter rule and after DNAT, so a published
+# port is judged by the container it leads to. Neither Docker nor Tailscale
+# writes to it, so it is flushed here, or each ufw reload would add a jump.
+- name: Keep Foundry off the LAN, the tailnet and Docker's networks
+  ansible.builtin.blockinfile:
+    path: /etc/ufw/after.rules
+    marker: "# {mark} golem foundry egress"
+    block: |
+      *mangle
+      :golem-foundry-egress - [0:0]
+      -F FORWARD
+      -A FORWARD -s {{ foundry_subnet }} -m conntrack --ctstate NEW -d {{ hardening_private_ipv4 }} -j golem-foundry-egress
+      -A golem-foundry-egress -m limit --limit 3/min --limit-burst 10 -j LOG --log-prefix "[golem-foundry-egress] "
+      -A golem-foundry-egress -j DROP
+      COMMIT
+    validate: /usr/sbin/iptables-restore --noflush --test %s
+  notify: Reload ufw

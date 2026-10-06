@@ -5,6 +5,10 @@ argument_specs:
       foundry_hostname:
         type: str
         required: true
+      foundry_subnet:
+        type: str
+        required: true
+        description: Foundry's network; hardening's golem-foundry-egress filters it by this subnet.
       vault_foundry_username:
         type: str
         required: true

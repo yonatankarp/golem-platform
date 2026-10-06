@@ -4,7 +4,8 @@ Only the owner is answered; everyone else is ignored without a reply.
 Claude runs with bypassPermissions, unattended and fully capable by the owner's
 decision. The boundary is not Claude's permission prompts but the process it
 runs as: the unprivileged agent user (no sudo, not in the docker group) inside
-agent.slice's memory and CPU cap.
+agent.slice's memory and CPU cap, with its Bash in Claude Code's sandbox under
+root's policy in /etc/claude-code.
 """
 
 import asyncio
@@ -17,6 +18,21 @@ CLAUDE = "/usr/bin/claude"  # from Anthropic's apt repository
 WORKDIR = str(Path.home() / "work")
 SESSIONS = Path.home() / ".local/state/discord-bot/sessions.json"
 LIMIT = 2000
+
+
+def make_undumpable():
+    """Hide the bot token from everything else the agent user runs.
+
+    Claude runs as the same user, so by default its Bash could read the token
+    from /proc/<bot>/environ or ptrace the bot. A non-dumpable process's /proc
+    files belong to root and it cannot be traced. execve resets the flag, so
+    claude itself is unaffected; its environment holds no token anyway.
+    """
+    import ctypes
+    PR_SET_DUMPABLE = 4
+    libc = ctypes.CDLL(None, use_errno=True)
+    if libc.prctl(PR_SET_DUMPABLE, 0, 0, 0, 0) != 0:
+        raise OSError(ctypes.get_errno(), "prctl(PR_SET_DUMPABLE, 0) failed")
 
 
 def is_owner(author_id, owner_id):
@@ -106,6 +122,7 @@ async def run_claude(prompt, session_id, running, key):
 
 
 def main():
+    make_undumpable()  # first, before the token is used for anything
     import discord
 
     owner_id = int(os.environ["DISCORD_OWNER_ID"])
