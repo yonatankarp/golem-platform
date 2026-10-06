@@ -90,6 +90,8 @@
             - github.com
             - "*.github.com"
             - "*.githubusercontent.com"
+            # Where GitHub Actions serves job logs and artifacts, for gh run.
+            - "*.blob.core.windows.net"
             - pypi.org
             - files.pythonhosted.org
             - registry.npmjs.org
