@@ -29,3 +29,6 @@ all:
     # 192.168/16), so no other network can be handed it.
     foundry_subnet: 10.99.0.0/24
     lorekeeper_sync_hostname: lorekeeper.yonatankarp.com
+    # Fixed for hardening's golem-lorekeeper-egress, like foundry_subnet, and
+    # outside Docker's default pools for the same reason.
+    lorekeeper_sync_subnet: 10.99.1.0/24

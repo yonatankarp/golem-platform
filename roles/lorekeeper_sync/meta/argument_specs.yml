@@ -5,6 +5,10 @@ argument_specs:
       lorekeeper_sync_hostname:
         type: str
         required: true
+      lorekeeper_sync_subnet:
+        type: str
+        required: true
+        description: The server's network; hardening's golem-lorekeeper-egress filters it by this subnet.
       lorekeeper_sync_uid:
         type: int
         description: The image's non-root uid; owns the data directory.

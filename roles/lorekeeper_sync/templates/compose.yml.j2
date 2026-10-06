@@ -14,6 +14,7 @@ services:
     # latest's digest.
     image: ghcr.io/yonatankarp/lorekeeper-sync:latest@sha256:7e272d33a3345a3bb787d46b70203da60ec0cbf88b1eb19176213d4ae22110cb
     restart: unless-stopped
+    networks: [egress]
     logging: *logging
     # The image's own non-root user, pinned here so it always owns /data.
     user: "{{ lorekeeper_sync_uid }}:{{ lorekeeper_sync_gid }}"
@@ -72,3 +73,12 @@ services:
     depends_on: [lorekeeper-sync]
     environment:
       TUNNEL_TOKEN: ${TUNNEL_TOKEN:?}
+
+# On a fixed subnet, which hardening's golem-lorekeeper-egress keeps off the
+# LAN, the tailnet and Docker's networks; cloudflared shares the server's
+# namespace, so it's held to the same. Neither needs anything private.
+networks:
+  egress:
+    ipam:
+      config:
+        - subnet: {{ lorekeeper_sync_subnet }}
