@@ -119,9 +119,6 @@
           - Edit(~/work/.mcp.json)
       # Hooks run outside the sandbox; none are deployed, so none run.
       allowManagedHooksOnly: true
-      # Memory the agent writes for itself is loaded into every later session:
-      # one injected prompt would persist like a rewritten briefing.
-      autoMemoryEnabled: false
 
 - name: Prove Claude Code runs on this CPU
   ansible.builtin.command: claude --version
