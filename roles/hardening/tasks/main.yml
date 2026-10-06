@@ -110,8 +110,13 @@
 # times on 2026-10-06), so DNS stays open to Tailscale's 100.100.100.100 and
 # fd7a:115c:a1e0::53 and to the router. REJECT, so a blocked tool fails at
 # once. After the loopback and ESTABLISHED accepts, so only new connections
-# are judged; fc00::/7 covers the tailnet's fd7a:115c:a1e0::/48. The owner
-# match needs the user, hence after creating it.
+# are judged. The owner match needs the user, hence after creating it.
+#
+# IPv6 is refused outright, DNS apart: the LAN has a global prefix the ISP
+# delegates and may change (2a02:8109:a28d:2400::/64 on 2026-10-06), on which
+# the agent reached about 15 hosts, and the resolvers dhcpcd writes sit in it
+# and at the ISP. Everything the agent needs answers on IPv4 as well, and a
+# REJECT sends it there at once (fallback tested as the agent, 2026-10-06).
 - name: Keep the agent off the LAN, the tailnet and Docker's networks
   ansible.builtin.blockinfile:
     path: "/etc/ufw/{{ item.file }}"
@@ -133,8 +138,8 @@
       restore: iptables-restore
     - file: before6.rules
       chain: ufw6-before-output
-      private: fc00::/7,fe80::/10
-      resolvers: fd7a:115c:a1e0::53
+      private: ::/0
+      resolvers: ::/0
       restore: ip6tables-restore
   loop_control:
     label: "{{ item.file }}"
