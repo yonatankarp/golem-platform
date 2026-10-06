@@ -105,12 +105,10 @@
 # everything private: as the agent, golem reached both socket-proxies
 # (172.19.0.3:2375 and 172.21.0.2:2375, i.e. every container's environment),
 # the NAS's tailnet services and the router (measured 2026-10-06). It needs the
-# internet and DNS, nothing more. The resolver is not fixed: tailscaled and
-# dhcpcd take turns writing /etc/resolv.conf (tailscaled logged it trampled 13
-# times on 2026-10-06), so DNS stays open to Tailscale's 100.100.100.100 and
-# fd7a:115c:a1e0::53 and to the router. REJECT, so a blocked tool fails at
-# once. After the loopback and ESTABLISHED accepts, so only new connections
-# are judged. The owner match needs the user, hence after creating it.
+# internet and DNS, nothing more, so DNS stays open to the router, the IPv4
+# nameserver dhcpcd writes. REJECT, so a blocked tool fails at once. After the
+# loopback and ESTABLISHED accepts, so only new connections are judged. The
+# owner match needs the user, hence after creating it.
 #
 # IPv6 is refused outright, DNS apart: the LAN has a global prefix the ISP
 # delegates and may change (2a02:8109:a28d:2400::/64 on 2026-10-06), on which
@@ -134,7 +132,7 @@
     - file: before.rules
       chain: ufw-before-output
       private: "{{ hardening_private_ipv4 }}"
-      resolvers: "100.100.100.100,{{ lan_resolver }}"
+      resolvers: "{{ lan_resolver }}"
       restore: iptables-restore
     - file: before6.rules
       chain: ufw6-before-output
