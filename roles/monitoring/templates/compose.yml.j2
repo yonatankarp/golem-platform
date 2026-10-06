@@ -47,8 +47,9 @@ services:
       start_period: 10s
 
   # CONTAINERS serves /containers/{id}/json, which includes every container's
-  # environment -- the tunnel token among them. So this proxy sits on an
-  # internal network shared with the agent alone and publishes nothing (NAS #829).
+  # environment -- the Beszel agent's own key and token among them. So this
+  # proxy sits on an internal network shared with the agent alone and publishes
+  # nothing (NAS #829).
   socket-proxy:
     image: lscr.io/linuxserver/socket-proxy:3.4.5@sha256:ca6c0301a652232d02cb0ff9f1c5d20d9b339f391e1c1dffaae6ef3bfc59d009
     restart: unless-stopped
