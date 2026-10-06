@@ -21,14 +21,23 @@ services:
     tmpfs:
       - /tmp:mode=1777
     security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    # A cap so a burst of big transfers (about 3x the 30 MiB blob limit per busy
+    # socket, see docs/SYNC.md) restarts this container instead of starving golem.
+    mem_limit: 2g
+    pids_limit: 256
     volumes:
       - /srv/lorekeeper-sync/data:/data
     env_file: lorekeeper-sync.env
     environment:
       LOREKEEPER_SYNC_DB: /data/sync.db
-      LOREKEEPER_SYNC_ADDR: 0.0.0.0:8080
+      # Loopback only: cloudflared shares this network namespace, so it is the
+      # one client that can connect. Nothing on the host or the compose network
+      # can reach the port, which is what makes trusting CF-Connecting-IP safe.
+      LOREKEEPER_SYNC_ADDR: 127.0.0.1:8080
       LOREKEEPER_SYNC_PUBLIC_URL: https://{{ lorekeeper_sync_hostname }}
-      # Rate limits key on CF-Connecting-IP, which cloudflared passes through.
+      # Rate limits key on CF-Connecting-IP, which Cloudflare sets and
+      # cloudflared passes through.
       LOREKEEPER_SYNC_TRUST_PROXY: cloudflare
     # GET /healthz through the binary itself, as the image has no curl or wget.
     # It must match the image: without --healthcheck the container never turns
@@ -49,6 +58,9 @@ services:
     logging: *logging
     # The same check as Foundry's cloudflared (see its compose for why).
     command: tunnel --no-autoupdate --metrics 127.0.0.1:20241 run
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
     healthcheck:
       test: [CMD, cloudflared, tunnel, --metrics, "127.0.0.1:20241", ready]
       interval: 30s

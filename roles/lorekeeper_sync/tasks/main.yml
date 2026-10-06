@@ -4,11 +4,13 @@
     that:
       - vault_lorekeeper_sync_tunnel_token is match('^eyJ[A-Za-z0-9_=-]{40,}$')
       - (vault_lorekeeper_sync_tunnel_token | b64decode) is match('^\\{.*\\}$')
-      - vault_lorekeeper_sync_create_key | length >= 32
+      # Base64 characters only: compose interpolates $ in env files, and quotes
+      # or whitespace would end up in the key.
+      - vault_lorekeeper_sync_create_key is match('^[A-Za-z0-9+/=_-]{32,}$')
     fail_msg: >-
       group_vars/all/vault_lorekeeper_sync.yml holds a placeholder or malformed
       value (the tunnel token must be exactly the eyJ... token, nothing after it;
-      create key at least 32 characters).
+      create key at least 32 base64 characters, as from openssl rand -base64 48).
     quiet: true
   no_log: true
 
