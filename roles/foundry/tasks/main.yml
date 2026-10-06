@@ -32,24 +32,32 @@
     mode: "0750"
 
 # The foundryvtt.com login downloads the release and fetches the licence; the
-# admin key guards Foundry's /setup page behind Cloudflare Access.
+# admin key guards Foundry's /setup page behind Cloudflare Access. The image
+# reads this as a Compose secret, as node (uid 1000): Compose ignores a file
+# secret's uid and mode outside Swarm, so the file's own owner is what counts.
+# to_json, because a quote in the password must not break the entrypoint's jq,
+# which on any error carries on without an admin key and leaves /setup open.
 - name: Render Foundry's credentials
   ansible.builtin.copy:
-    dest: /srv/foundry/foundry.env
-    content: |
-      FOUNDRY_USERNAME={{ vault_foundry_username }}
-      FOUNDRY_PASSWORD={{ vault_foundry_password }}
-      FOUNDRY_ADMIN_KEY={{ vault_foundry_admin_key }}
-    mode: "0600"
+    dest: /srv/foundry/config.json
+    content: >-
+      {{ {'foundry_username': vault_foundry_username,
+          'foundry_password': vault_foundry_password,
+          'foundry_admin_key': vault_foundry_admin_key} | to_json }}
+    owner: "1000"
+    group: "1000"
+    mode: "0400"
   no_log: true
 
-# Kept apart from foundry.env so a compromised Foundry never sees the token.
+# Kept apart from config.json so a compromised Foundry never sees the token.
+# cloudflared runs as nonroot (uid 65532).
 - name: Render the tunnel token
   ansible.builtin.copy:
-    dest: /srv/foundry/.env
-    content: |
-      TUNNEL_TOKEN={{ vault_cloudflare_tunnel_token }}
-    mode: "0600"
+    dest: /srv/foundry/tunnel-token
+    content: "{{ vault_cloudflare_tunnel_token }}"
+    owner: "65532"
+    group: "65532"
+    mode: "0400"
   no_log: true
 
 - name: Render the Foundry stack
@@ -62,3 +70,12 @@
   community.docker.docker_compose_v2:
     project_src: /srv/foundry
     state: present
+
+# The environment files the credentials lived in before they became secrets.
+- name: Remove the old environment files
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /srv/foundry/foundry.env
+    - /srv/foundry/.env

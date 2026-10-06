@@ -4,6 +4,14 @@ x-logging: &logging
   driver: json-file
   options: {max-size: 10m, max-file: "3"}
 
+# Files, not environment variables: every container's environment is served by
+# the monitoring stack's Docker socket proxies (CONTAINERS=1).
+secrets:
+  foundry:
+    file: /srv/foundry/config.json
+  tunnel-token:
+    file: /srv/foundry/tunnel-token
+
 services:
   # Publishes no port: ufw does not filter Docker-published ports, so the only
   # way in is cloudflared, behind Cloudflare Access.
@@ -12,9 +20,22 @@ services:
     restart: unless-stopped
     logging: *logging
     stop_grace_period: 30s
+    # The image starts as node and never calls su, sudo or mount, so it needs no
+    # capability. The rootfs stays writable: the entrypoint unpacks the release
+    # into /home/node/resources in every new container.
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    # A mounted file, unlike the environment, does not recreate the container
+    # when it changes; this label does. The tunnel token salts it, so the label,
+    # which the socket proxies serve too, is no offline check for a short password.
+    labels:
+      golem.foundry.credentials-sha256: "{{ [vault_cloudflare_tunnel_token, vault_foundry_username, vault_foundry_password, vault_foundry_admin_key] | to_json | hash('sha256') }}"
+    # The entrypoint reads exactly this path, and without it still starts
+    # healthy, only with no admin key on /setup.
+    secrets:
+      - {source: foundry, target: /run/secrets/config.json}
     volumes:
       - /srv/foundry/data:/data
-    env_file: foundry.env
     environment:
       CONTAINER_CACHE: /data/container_cache
       FOUNDRY_HOSTNAME: {{ foundry_hostname }}
@@ -26,6 +47,10 @@ services:
     image: cloudflare/cloudflared:2026.9.3@sha256:072c067d25ccbe61d46e18f0d0723255f2bb5304f7317caa95b27031520ff92c
     restart: unless-stopped
     logging: *logging
+    # Runs as nonroot and only dials out; it writes nothing to its rootfs.
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
     # The image has no shell or wget, so the check is cloudflared's own `tunnel
     # ready`: 200 from /ready once at least one edge connection is up. It
     # refuses to run without --metrics, so the address is pinned in both places,
@@ -39,7 +64,12 @@ services:
       start_period: 10s
     # Shares Foundry's network namespace, so the tunnel's existing dashboard
     # route (dnd.yonatankarp.com -> http://localhost:30000) reaches it unchanged.
+    # Only the network: the token is mounted here alone, out of Foundry's reach.
     network_mode: service:foundry
     depends_on: [foundry]
+    # Recreates the container on a new token, as Foundry's label does.
+    labels:
+      golem.cloudflared.token-sha256: "{{ vault_cloudflare_tunnel_token | hash('sha256') }}"
+    secrets: [tunnel-token]
     environment:
-      TUNNEL_TOKEN: ${TUNNEL_TOKEN:?}
+      TUNNEL_TOKEN_FILE: /run/secrets/tunnel-token
