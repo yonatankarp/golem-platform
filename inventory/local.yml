@@ -7,6 +7,8 @@ all:
   vars:
     admin_user: yonatan
     lan_cidr: 192.168.0.0/24
+    # The router, the nameserver dhcpcd writes; the agent may reach it on 53 only.
+    lan_resolver: 192.168.0.1
     agent_user: agent
     # The agent must never starve Foundry: 8 GB RAM, 4 threads in total.
     agent_memory_max: 3G
@@ -20,3 +22,7 @@ all:
     # rather than a name for the same reason as beszel_hub_url.
     dozzle_agent_address: 100.104.25.70:7007
     foundry_hostname: dnd.yonatankarp.com
+    # Fixed so the firewall can tell Foundry's traffic apart (hardening's
+    # golem-foundry-egress). Outside Docker's default pools (172.17-31/16,
+    # 192.168/16), so no other network can be handed it.
+    foundry_subnet: 10.99.0.0/24
