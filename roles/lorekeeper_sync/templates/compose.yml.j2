@@ -25,6 +25,7 @@ services:
     security_opt: [no-new-privileges:true]
     volumes:
       - /srv/lorekeeper-sync/data:/data
+    env_file: lorekeeper-sync.env
     environment:
       LOREKEEPER_SYNC_DB: /data/sync.db
       LOREKEEPER_SYNC_ADDR: 0.0.0.0:8080

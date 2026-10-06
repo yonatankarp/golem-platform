@@ -1,12 +1,14 @@
 # The same guard as Foundry's: a template value saved unedited must not deploy.
-- name: Refuse a placeholder tunnel token
+- name: Refuse placeholder Lorekeeper sync credentials
   ansible.builtin.assert:
     that:
       - vault_lorekeeper_sync_tunnel_token is match('^eyJ[A-Za-z0-9_=-]{40,}$')
       - (vault_lorekeeper_sync_tunnel_token | b64decode) is match('^\\{.*\\}$')
+      - vault_lorekeeper_sync_create_key | length >= 32
     fail_msg: >-
       group_vars/all/vault_lorekeeper_sync.yml holds a placeholder or malformed
-      value (the tunnel token must be exactly the eyJ... token, nothing after it).
+      value (the tunnel token must be exactly the eyJ... token, nothing after it;
+      create key at least 32 characters).
     quiet: true
   no_log: true
 
@@ -25,6 +27,16 @@
     group: "{{ lorekeeper_sync_gid }}"
     mode: "0750"
 
+# Only holders of this key can create rooms; joining one needs only its invite.
+- name: Render the sync server's credentials
+  ansible.builtin.copy:
+    dest: /srv/lorekeeper-sync/lorekeeper-sync.env
+    content: |
+      LOREKEEPER_SYNC_CREATE_KEY={{ vault_lorekeeper_sync_create_key }}
+    mode: "0600"
+  no_log: true
+
+# Kept apart from lorekeeper-sync.env so a compromised server never sees the token.
 - name: Render the tunnel token
   ansible.builtin.copy:
     dest: /srv/lorekeeper-sync/.env

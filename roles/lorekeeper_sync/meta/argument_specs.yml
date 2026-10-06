@@ -15,3 +15,8 @@ argument_specs:
         type: str
         required: true
         no_log: true
+      vault_lorekeeper_sync_create_key:
+        type: str
+        required: true
+        no_log: true
+        description: Restricts who can create rooms; entered once in the Lorekeeper app.
