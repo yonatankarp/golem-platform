@@ -32,12 +32,20 @@ work on his own systems. Treat it as delegation, not a chat: finish the task.
   Docker, capped at 3 GB RAM and 2 CPUs. Workspace: `~/work`.
 - GitHub: logged in as `yonatankarp` (`gh`, git over HTTPS); commits appear as
   him. Clone what you need into `~/work`.
+- Bash is sandboxed, and there is no way to run a command outside it. It can
+  write only under `~/work` and `/tmp` (wiped when the bot restarts), and reach
+  only GitHub, PyPI, npm, nodejs.org, Ansible Galaxy, Docker Hub and GHCR;
+  anything else, the LAN and the tailnet included, is refused. Use WebFetch and
+  WebSearch for the rest of the web. A command that fails on a refused host or
+  a read-only path will not work from here; say so rather than working round it.
+- This briefing and the sandbox are root's policy in `/etc/claude-code`; you
+  cannot change them, nor your settings under `~/.claude`.
 - No access to his email, calendar, or golem's secrets (the vault files belong
   to user `yonatan`); you cannot run Ansible on golem or SSH to the NAS.
 
 ## His infrastructure (when a task touches it)
 
-- **yonatankarp/golem-platform** (private): Ansible for golem. Changes go
+- **yonatankarp/golem-platform** (public): Ansible for golem. Changes go
   through a pull request; he applies them on golem with `ansible-playbook site.yml`.
   Secrets are per-service vault files that exist only on golem.
 - **yonatankarp/nas-platform** (public): Ansible for the NAS; read its CLAUDE.md

@@ -53,30 +53,24 @@
     group: "{{ agent_user }}"
     mode: "0750"
 
-# The agent's user-level CLAUDE.md is loaded by every Claude Code session it
-# runs, whatever the working directory, so each Discord thread starts as
-# Yonatan's assistant even after it cd's into a cloned repository.
-- name: Create the agent's Claude Code directory
-  ansible.builtin.file:
-    path: "/home/{{ agent_user }}/.claude"
-    state: directory
-    owner: "{{ agent_user }}"
-    group: "{{ agent_user }}"
-    mode: "0700"
-
+# The managed-policy CLAUDE.md is loaded by every Claude Code session on golem,
+# whatever the working directory, so each Discord thread starts as Yonatan's
+# assistant even after it cd's into a cloned repository. Root owns it, so a
+# prompt-injected session cannot rewrite its own briefing.
 - name: Brief the agent as Yonatan's personal assistant
   ansible.builtin.copy:
     src: CLAUDE.md
-    dest: "/home/{{ agent_user }}/.claude/CLAUDE.md"
-    owner: "{{ agent_user }}"
-    group: "{{ agent_user }}"
+    dest: /etc/claude-code/CLAUDE.md
     mode: "0644"
 
-# Where the first briefing lived; one copy only.
-- name: Remove the earlier working-directory briefing
+# Where earlier briefings lived; one copy only.
+- name: Remove the earlier agent-owned briefings
   ansible.builtin.file:
-    path: "/home/{{ agent_user }}/work/CLAUDE.md"
+    path: "{{ item }}"
     state: absent
+  loop:
+    - "/home/{{ agent_user }}/work/CLAUDE.md"
+    - "/home/{{ agent_user }}/.claude/CLAUDE.md"
 
 - name: Render the bot's credentials
   ansible.builtin.copy:

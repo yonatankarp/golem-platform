@@ -59,4 +59,18 @@ async def _stop():
         pass
 asyncio.run(_stop())
 
+# make_undumpable: the bot's /proc files turn root-owned, and claude, which it
+# execs, starts dumpable again. Linux only; prctl does not exist elsewhere.
+if sys.platform == "linux":
+    import subprocess
+    probe = (
+        "import subprocess, sys; sys.path.insert(0, sys.argv[1]); import bot\n"
+        "bot.make_undumpable()\n"
+        "import os; print(os.stat('/proc/self/environ').st_uid, flush=True)\n"
+        "subprocess.run([sys.executable, '-c', 'import ctypes; "
+        "print(ctypes.CDLL(None).prctl(3, 0, 0, 0, 0))'])\n")  # PR_GET_DUMPABLE
+    out = subprocess.run([sys.executable, "-c", probe, str(Path(__file__).parent)],
+                         capture_output=True, text=True, check=True).stdout.split()
+    assert out == ["0", "1"], out
+
 print("ok")
