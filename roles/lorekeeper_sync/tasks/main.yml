@@ -53,8 +53,11 @@
     dest: /srv/lorekeeper-sync/compose.yml
     mode: "0644"
 
+# On a first --check the directory above is only reported, not made, so there
+# is nothing for Compose to read yet; as with the bot's first build.
 - name: Deploy the Lorekeeper sync stack
   community.docker.docker_compose_v2:
     project_src: /srv/lorekeeper-sync
     state: present
     wait: true
+  ignore_errors: "{{ ansible_check_mode }}"
