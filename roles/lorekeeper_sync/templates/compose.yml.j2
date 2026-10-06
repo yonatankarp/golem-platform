@@ -1,0 +1,84 @@
+name: lorekeeper-sync
+
+x-logging: &logging
+  driver: json-file
+  options: {max-size: 10m, max-file: "3"}
+
+services:
+  # Publishes no port: ufw does not filter Docker-published ports, so the only
+  # way in is cloudflared. Not behind Cloudflare Access, unlike Foundry: the
+  # desktop apps connect directly, and the server authenticates each room by
+  # its token itself.
+  lorekeeper-sync:
+    # Published from yonatankarp/lorekeeper on every main push; Renovate follows
+    # latest's digest.
+    image: ghcr.io/yonatankarp/lorekeeper-sync:latest@sha256:7e272d33a3345a3bb787d46b70203da60ec0cbf88b1eb19176213d4ae22110cb
+    restart: unless-stopped
+    networks: [egress]
+    logging: *logging
+    # The image's own non-root user, pinned here so it always owns /data.
+    user: "{{ lorekeeper_sync_uid }}:{{ lorekeeper_sync_gid }}"
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    # A cap so a burst of big transfers (about 3x the 30 MiB blob limit per busy
+    # socket, see docs/SYNC.md) restarts this container instead of starving golem.
+    mem_limit: 2g
+    pids_limit: 256
+    volumes:
+      - /srv/lorekeeper-sync/data:/data
+    env_file: lorekeeper-sync.env
+    environment:
+      LOREKEEPER_SYNC_DB: /data/sync.db
+      # Loopback only: cloudflared shares this network namespace, so it is the
+      # one client that can connect. Nothing on the host or the compose network
+      # can reach the port, which is what makes trusting CF-Connecting-IP safe.
+      LOREKEEPER_SYNC_ADDR: 127.0.0.1:8080
+      LOREKEEPER_SYNC_PUBLIC_URL: https://{{ lorekeeper_sync_hostname }}
+      # Rate limits key on CF-Connecting-IP, which Cloudflare sets and
+      # cloudflared passes through.
+      LOREKEEPER_SYNC_TRUST_PROXY: cloudflare
+    # GET /healthz through the binary itself, as the image has no curl or wget.
+    # It must match the image: without --healthcheck the container never turns
+    # healthy and the deploy's wait fails the converge.
+    healthcheck:
+      test: [CMD, /usr/local/bin/lorekeeper-sync, --healthcheck]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # Its own tunnel, lorekeeper-sync, not Foundry's. Remote-managed: the public
+  # hostname (lorekeeper.yonatankarp.com -> http://localhost:8080) is set in
+  # the Cloudflare dashboard, not here.
+  cloudflared:
+    image: cloudflare/cloudflared:2026.9.3@sha256:072c067d25ccbe61d46e18f0d0723255f2bb5304f7317caa95b27031520ff92c
+    restart: unless-stopped
+    logging: *logging
+    # The same check as Foundry's cloudflared (see its compose for why).
+    command: tunnel --no-autoupdate --metrics 127.0.0.1:20241 run
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    healthcheck:
+      test: [CMD, cloudflared, tunnel, --metrics, "127.0.0.1:20241", ready]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    # Shares the server's network namespace, so localhost:8080 is the server.
+    network_mode: service:lorekeeper-sync
+    depends_on: [lorekeeper-sync]
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:?}
+
+# On a fixed subnet, which hardening's golem-lorekeeper-egress keeps off the
+# LAN, the tailnet and Docker's networks; cloudflared shares the server's
+# namespace, so it's held to the same. Neither needs anything private.
+networks:
+  egress:
+    ipam:
+      config:
+        - subnet: {{ lorekeeper_sync_subnet }}

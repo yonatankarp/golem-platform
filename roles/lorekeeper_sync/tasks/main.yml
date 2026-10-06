@@ -1,0 +1,60 @@
+# The same guard as Foundry's: a template value saved unedited must not deploy.
+- name: Refuse placeholder Lorekeeper sync credentials
+  ansible.builtin.assert:
+    that:
+      - vault_lorekeeper_sync_tunnel_token is match('^eyJ[A-Za-z0-9_=-]{40,}$')
+      - (vault_lorekeeper_sync_tunnel_token | b64decode) is match('^\\{.*\\}$')
+      # Base64 characters only: compose interpolates $ in env files, and quotes
+      # or whitespace would end up in the key.
+      - vault_lorekeeper_sync_create_key is match('^[A-Za-z0-9+/=_-]{32,}$')
+    fail_msg: >-
+      group_vars/all/vault_lorekeeper_sync.yml holds a placeholder or malformed
+      value (the tunnel token must be exactly the eyJ... token, nothing after it;
+      create key at least 32 base64 characters, as from openssl rand -base64 48).
+    quiet: true
+  no_log: true
+
+- name: Create the Lorekeeper sync directory
+  ansible.builtin.file:
+    path: /srv/lorekeeper-sync
+    state: directory
+    mode: "0750"
+
+# Holds sync.db and its WAL: every room's encrypted files.
+- name: Create the sync server's data directory
+  ansible.builtin.file:
+    path: /srv/lorekeeper-sync/data
+    state: directory
+    owner: "{{ lorekeeper_sync_uid }}"
+    group: "{{ lorekeeper_sync_gid }}"
+    mode: "0750"
+
+# Only holders of this key can create rooms; joining one needs only its invite.
+- name: Render the sync server's credentials
+  ansible.builtin.copy:
+    dest: /srv/lorekeeper-sync/lorekeeper-sync.env
+    content: |
+      LOREKEEPER_SYNC_CREATE_KEY={{ vault_lorekeeper_sync_create_key }}
+    mode: "0600"
+  no_log: true
+
+# Kept apart from lorekeeper-sync.env so a compromised server never sees the token.
+- name: Render the tunnel token
+  ansible.builtin.copy:
+    dest: /srv/lorekeeper-sync/.env
+    content: |
+      TUNNEL_TOKEN={{ vault_lorekeeper_sync_tunnel_token }}
+    mode: "0600"
+  no_log: true
+
+- name: Render the Lorekeeper sync stack
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: /srv/lorekeeper-sync/compose.yml
+    mode: "0644"
+
+- name: Deploy the Lorekeeper sync stack
+  community.docker.docker_compose_v2:
+    project_src: /srv/lorekeeper-sync
+    state: present
+    wait: true

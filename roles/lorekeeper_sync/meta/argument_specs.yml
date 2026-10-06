@@ -1,0 +1,26 @@
+argument_specs:
+  main:
+    short_description: Lorekeeper sync server published through its own Cloudflare Tunnel
+    options:
+      lorekeeper_sync_hostname:
+        type: str
+        required: true
+      lorekeeper_sync_subnet:
+        type: str
+        required: true
+        description: The server's network; hardening's golem-lorekeeper-egress filters it by this subnet.
+      lorekeeper_sync_uid:
+        type: int
+        description: The image's non-root uid; owns the data directory.
+      lorekeeper_sync_gid:
+        type: int
+        description: The image's non-root gid; owns the data directory.
+      vault_lorekeeper_sync_tunnel_token:
+        type: str
+        required: true
+        no_log: true
+      vault_lorekeeper_sync_create_key:
+        type: str
+        required: true
+        no_log: true
+        description: Restricts who can create rooms; entered once in the Lorekeeper app.

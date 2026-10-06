@@ -154,17 +154,21 @@
 # mangle FORWARD runs before any filter rule and after DNAT, so a published
 # port is judged by the container it leads to. Neither Docker nor Tailscale
 # writes to it, so it is flushed here, or each ufw reload would add a jump.
-- name: Keep Foundry off the LAN, the tailnet and Docker's networks
+- name: Keep Foundry and the Lorekeeper sync server off the LAN, the tailnet and Docker's networks
   ansible.builtin.blockinfile:
     path: /etc/ufw/after.rules
     marker: "# {mark} golem foundry egress"
     block: |
       *mangle
       :golem-foundry-egress - [0:0]
+      :golem-lorekeeper-egress - [0:0]
       -F FORWARD
       -A FORWARD -s {{ foundry_subnet }} -m conntrack --ctstate NEW -d {{ hardening_private_ipv4 }} -j golem-foundry-egress
       -A golem-foundry-egress -m limit --limit 3/min --limit-burst 10 -j LOG --log-prefix "[golem-foundry-egress] "
       -A golem-foundry-egress -j DROP
+      -A FORWARD -s {{ lorekeeper_sync_subnet }} -m conntrack --ctstate NEW -d {{ hardening_private_ipv4 }} -j golem-lorekeeper-egress
+      -A golem-lorekeeper-egress -m limit --limit 3/min --limit-burst 10 -j LOG --log-prefix "[golem-lorekeeper-egress] "
+      -A golem-lorekeeper-egress -j DROP
       COMMIT
     validate: /usr/sbin/iptables-restore --noflush --test %s
   notify: Reload ufw
