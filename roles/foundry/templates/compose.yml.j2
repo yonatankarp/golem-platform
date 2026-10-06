@@ -20,6 +20,7 @@ services:
     restart: unless-stopped
     logging: *logging
     stop_grace_period: 30s
+    networks: [egress]
     # The image starts as node and never calls su, sudo or mount, so it needs no
     # capability. The rootfs stays writable: the entrypoint unpacks the release
     # into /home/node/resources in every new container.
@@ -73,3 +74,15 @@ services:
     secrets: [tunnel-token]
     environment:
       TUNNEL_TOKEN_FILE: /run/secrets/tunnel-token
+
+# On a fixed subnet, which hardening's golem-foundry-egress keeps off the LAN,
+# the tailnet and Docker's networks. A new network rather than a subnet on
+# `default`: Compose 5.6.0 recreates a changed network by stopping and
+# reconnecting Foundry alone, which would leave cloudflared in Foundry's old
+# namespace. A new network changes Foundry's own config, so Compose recreates
+# it, and cloudflared with it. The old foundry_default is left behind, unused.
+networks:
+  egress:
+    ipam:
+      config:
+        - subnet: {{ foundry_subnet }}
