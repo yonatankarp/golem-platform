@@ -70,3 +70,17 @@ authenticates each room itself. Set it up once:
    is published.
 5. Converge (above). Until steps 3 and 4 are done, every converge stops at this
    role.
+
+cloudflared shares the server's network namespace, so restart the whole stack,
+never the server container alone: a `stop` and `start` of `lorekeeper-sync`
+leaves cloudflared in the old namespace and the hostname returns 502. The
+directory is root-only (mode 0750), hence `sudo sh -c`:
+
+```sh
+sudo sh -c "cd /srv/lorekeeper-sync && docker compose restart"
+```
+
+The same command repairs a stranded cloudflared. Rerunning the playbook applies
+changes but leaves unchanged containers alone, so it does not. Foundry's
+cloudflared shares Foundry's namespace the same way: restart that stack with
+`sudo sh -c "cd /srv/foundry && docker compose restart"`.

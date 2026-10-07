@@ -70,7 +70,15 @@ services:
       start_period: 10s
     # Shares the server's network namespace, so localhost:8080 is the server.
     network_mode: service:lorekeeper-sync
-    depends_on: [lorekeeper-sync]
+    # A restarted server gets a new network namespace and cloudflared would
+    # keep the old one, so the hostname 502s. restart: true (Compose 2.17+)
+    # makes Compose restart cloudflared after a `docker compose restart` of the
+    # server or the stack; without it a stack restart left cloudflared exited.
+    # A `stop` then `start` of the server alone still strands it (see README).
+    depends_on:
+      lorekeeper-sync:
+        condition: service_healthy
+        restart: true
     environment:
       TUNNEL_TOKEN: ${TUNNEL_TOKEN:?}
 
