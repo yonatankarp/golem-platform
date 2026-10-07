@@ -67,7 +67,13 @@ services:
     # route (dnd.yonatankarp.com -> http://localhost:30000) reaches it unchanged.
     # Only the network: the token is mounted here alone, out of Foundry's reach.
     network_mode: service:foundry
-    depends_on: [foundry]
+    # Restarted with Foundry, which would otherwise leave it in Foundry's old
+    # namespace, as lorekeeper_sync's compose explains. service_started, not
+    # service_healthy: Foundry has no healthcheck, here or in the image.
+    depends_on:
+      foundry:
+        condition: service_started
+        restart: true
     # Recreates the container on a new token, as Foundry's label does.
     labels:
       golem.cloudflared.token-sha256: "{{ vault_cloudflare_tunnel_token | hash('sha256') }}"

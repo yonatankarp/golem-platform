@@ -81,4 +81,6 @@ sudo sh -c "cd /srv/lorekeeper-sync && docker compose restart"
 ```
 
 The same command repairs a stranded cloudflared. Rerunning the playbook applies
-changes but leaves unchanged containers alone, so it does not.
+changes but leaves unchanged containers alone, so it does not. Foundry's
+cloudflared shares Foundry's namespace the same way: restart that stack with
+`sudo sh -c "cd /srv/foundry && docker compose restart"`.
