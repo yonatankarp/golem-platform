@@ -1,0 +1,25 @@
+#!/bin/sh
+# Restarts each running container whose network namespace is no longer that of
+# the container it joined with network_mode (container:<id>). Docker joins the
+# parent's namespace only at start: when the parent restarts in place it gets a
+# new one, and the joined container stays in the old one with only loopback.
+# A restart rejoins the parent's current namespace; the ID is unchanged.
+set -u
+
+for id in $(docker ps --quiet --no-trunc); do
+  info=$(docker inspect --format '{{.Name}} {{.HostConfig.NetworkMode}} {{.State.Pid}}' "$id" 2>/dev/null) || continue
+  set -- $info
+  name=${1#/} mode=$2 pid=$3
+  case $mode in container:*) ;; *) continue ;; esac
+
+  # Not running, or mid-restart: the next run catches it once it is up.
+  parent_pid=$(docker inspect --format '{{.State.Pid}}' "${mode#container:}" 2>/dev/null) || continue
+  [ "$parent_pid" -gt 0 ] || continue
+
+  ns=$(readlink "/proc/$pid/ns/net") || continue
+  parent_ns=$(readlink "/proc/$parent_pid/ns/net") || continue
+  [ "$ns" = "$parent_ns" ] && continue
+
+  echo "$name is in $ns, not its parent's $parent_ns; restarting it"
+  docker restart "$id" >/dev/null
+done
