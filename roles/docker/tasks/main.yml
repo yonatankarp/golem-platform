@@ -59,3 +59,56 @@
     content: |
       Unattended-Upgrade::Origins-Pattern { "origin=Docker"; };
     mode: "0644"
+
+# Both cloudflareds join their server's network namespace (network_mode:
+# service:), which Docker binds once, at start. A restarted server gets a new
+# namespace and leaves cloudflared in the old one, with no route out:
+# lorekeeper.yonatankarp.com 502'd that way on 2026-10-07. Their depends_on
+# restart: true covers restarts Compose makes, but not Docker's own after a
+# crash or the memory cap, nor a `stop` then `start` of the server alone. This
+# restarts any such container within a minute. It compares namespaces rather
+# than health, so a Cloudflare outage restarts nothing.
+- name: Install the shared network namespace watchdog
+  ansible.builtin.copy:
+    src: rejoin-shared-netns
+    dest: /usr/local/sbin/rejoin-shared-netns
+    mode: "0755"
+
+- name: Define the shared network namespace watchdog
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/rejoin-shared-netns.{{ item.unit }}"
+    content: "{{ item.content }}"
+    mode: "0644"
+  loop:
+    - unit: service
+      content: |
+        [Unit]
+        Description=Restart containers left outside the network namespace they joined
+        After=docker.service
+        Requires=docker.service
+
+        [Service]
+        Type=oneshot
+        ExecStart=/usr/local/sbin/rejoin-shared-netns
+    - unit: timer
+      content: |
+        [Unit]
+        Description=Check every minute for containers left outside their shared network namespace
+
+        [Timer]
+        OnBootSec=2min
+        OnUnitActiveSec=1min
+
+        [Install]
+        WantedBy=timers.target
+  loop_control:
+    label: "{{ item.unit }}"
+  notify: Reload systemd
+
+- name: Enable the shared network namespace watchdog
+  ansible.builtin.systemd_service:
+    name: rejoin-shared-netns.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  ignore_errors: "{{ ansible_check_mode }}"
