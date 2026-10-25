@@ -11,6 +11,15 @@
     quiet: true
   no_log: true
 
+- name: Refuse a placeholder alert relay token
+  ansible.builtin.assert:
+    that: vault_dozzle_alert_relay_token is match('^[0-9a-f]{64}\\Z')
+    fail_msg: >-
+      group_vars/all/vault_monitoring.yml holds a placeholder or malformed
+      vault_dozzle_alert_relay_token (64 lowercase hex characters, as on the NAS).
+    quiet: true
+  no_log: true
+
 - name: Create the monitoring directories
   ansible.builtin.file:
     path: "{{ item }}"
@@ -79,3 +88,63 @@
     project_src: /srv/monitoring
     state: present
     wait: true
+
+# Kept out of the pager's command line, where any user could read it.
+- name: Render the alert relay's authorization header
+  ansible.builtin.copy:
+    dest: /srv/monitoring/alert-relay.header
+    content: |
+      Authorization: Bearer {{ vault_dozzle_alert_relay_token }}
+    mode: "0600"
+  no_log: true
+
+# Dozzle pages golem's containers only while it can see Docker, so it was silent
+# for the four days (2026-10-21 to 25) a replaced Docker socket left both proxies
+# answering 503: its own agent sat unhealthy and nothing said so. This pages
+# what is unhealthy once that has lasted 5 minutes, reading Docker directly. The
+# docker role's remount-docker-socket heals that failure within a minute, so it
+# pages for what that does not fix.
+- name: Install the blind-Dozzle pager
+  ansible.builtin.copy:
+    src: page-unhealthy-while-dozzle-blind
+    dest: /usr/local/sbin/page-unhealthy-while-dozzle-blind
+    mode: "0755"
+
+- name: Define the blind-Dozzle pager
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/page-unhealthy-while-dozzle-blind.{{ item.unit }}"
+    content: "{{ item.content }}"
+    mode: "0644"
+  loop:
+    - unit: service
+      content: |
+        [Unit]
+        Description=Page unhealthy containers while golem's Dozzle agent cannot see Docker
+        After=docker.service
+        Requires=docker.service
+
+        [Service]
+        Type=oneshot
+        ExecStart=/usr/local/sbin/page-unhealthy-while-dozzle-blind {{ dozzle_alert_relay_url }}
+    - unit: timer
+      content: |
+        [Unit]
+        Description=Check every minute whether golem's Dozzle agent is blind
+
+        [Timer]
+        OnBootSec=2min
+        OnUnitActiveSec=1min
+
+        [Install]
+        WantedBy=timers.target
+  loop_control:
+    label: "{{ item.unit }}"
+  notify: Reload systemd
+
+- name: Enable the blind-Dozzle pager
+  ansible.builtin.systemd_service:
+    name: page-unhealthy-while-dozzle-blind.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  ignore_errors: "{{ ansible_check_mode }}"

@@ -2,3 +2,7 @@
 - name: Apply the non-local bind setting
   ansible.builtin.command: /usr/sbin/sysctl -p /etc/sysctl.d/60-golem-nonlocal-bind.conf
   changed_when: true
+
+- name: Reload systemd
+  ansible.builtin.systemd_service:
+    daemon_reload: true

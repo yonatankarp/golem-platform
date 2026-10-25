@@ -23,6 +23,16 @@ argument_specs:
         type: str
         required: true
         description: host:port the Dozzle agent publishes on; golem's tailnet address.
+      dozzle_alert_relay_url:
+        type: str
+        required: true
+        description: The NAS alert relay's /alerts URL, for pages Dozzle cannot send.
+      # Copy of the NAS vault value of the same name: the bearer token the relay
+      # accepts on /alerts. Rotating it on the NAS means updating it here.
+      vault_dozzle_alert_relay_token:
+        type: str
+        required: true
+        no_log: true
       # Copies of NAS vault values under the same names: one self-signed pair
       # both ends present and trust. Rotating it on the NAS means updating it here.
       vault_dozzle_agent_certificate:
