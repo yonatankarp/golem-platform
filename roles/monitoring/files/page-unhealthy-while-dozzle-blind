@@ -1,0 +1,47 @@
+#!/bin/sh
+# Pages golem's unhealthy containers through the NAS's alert relay while golem's
+# Dozzle agent has been failing its own health check for 5 minutes (10 checks
+# 30 s apart): Dozzle then sees no Docker events, so it pages nothing itself.
+# Reads Docker's socket directly, not through either proxy. Each container is
+# paged once, and its Recovery is sent whenever it is healthy again.
+# Usage: page-unhealthy-while-dozzle-blind <relay /alerts URL>
+set -u
+
+relay=$1
+header=/srv/monitoring/alert-relay.header
+agent=monitoring-dozzle-agent-1
+state=/run/page-unhealthy-while-dozzle-blind
+mkdir -p "$state"
+
+# The relay's /alerts envelope, as nas-platform's Dozzle dispatcher template
+# sends it. Docker container names are [a-zA-Z0-9_.-], so need no escaping.
+post() {
+  printf '{"version":1,"rule":"%s","containerId":"%s","container":"%s","host":"Golem","event":"health_status","healthStatus":"%s","exitCode":"","timestamp":"%s"}' \
+    "$1" "$2" "$3" "$4" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" |
+    curl -fsS -m 10 -o /dev/null -H @"$header" -H 'Content-Type: application/json' --data-binary @- "$relay"
+}
+
+for marker in "$state"/*; do
+  [ -e "$marker" ] || continue
+  id=${marker##*/}
+  # Gone or recreated: no Recovery can name it any more.
+  status=$(docker inspect --format '{{.State.Health.Status}}' "$id" 2>/dev/null) || { rm -f "$marker"; continue; }
+  [ "$status" = healthy ] || continue
+  name=$(cat "$marker")
+  post Recovery "$id" "$name" healthy && rm -f "$marker" && echo "paged $name recovered"
+done
+
+# shortcut: an agent that is stopped or gone keeps its last streak or has none,
+# so it pages nothing; gate on .State.Running too if that ever goes unnoticed.
+# shortcut: a container Dozzle paged before going blind is paged a second time,
+# since the relay publishes any newer Unhealthy; acceptable while that is rare.
+streak=$(docker inspect --format '{{.State.Health.FailingStreak}}' "$agent" 2>/dev/null) || exit 0
+[ "${streak:-0}" -ge 10 ] || exit 0
+
+# Short IDs, as Dozzle sends them: the relay keys health state by host and ID.
+for id in $(docker ps --quiet --filter health=unhealthy); do
+  [ -e "$state/$id" ] && continue
+  name=$(docker inspect --format '{{.Name}}' "$id" 2>/dev/null) || continue
+  name=${name#/}
+  post Unhealthy "$id" "$name" unhealthy && echo "$name" >"$state/$id" && echo "paged $name unhealthy"
+done
