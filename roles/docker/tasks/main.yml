@@ -112,3 +112,55 @@
     state: started
     daemon_reload: true
   ignore_errors: "{{ ansible_check_mode }}"
+
+# Both socket proxies bind-mount /var/run/docker.sock, which pins the file they
+# found. Docker makes a new socket whenever it restarts, and live-restore keeps
+# the proxies running on the old one, answering 503 to everything: golem's
+# Dozzle logs, Dozzle alerts and Beszel container stats went dark that way from
+# unattended-upgrades' docker-ce update on 2026-10-21 until 2026-10-25. This
+# restarts any container that started before the current socket, within a
+# minute.
+- name: Install the Docker socket watchdog
+  ansible.builtin.copy:
+    src: remount-docker-socket
+    dest: /usr/local/sbin/remount-docker-socket
+    mode: "0755"
+
+- name: Define the Docker socket watchdog
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/remount-docker-socket.{{ item.unit }}"
+    content: "{{ item.content }}"
+    mode: "0644"
+  loop:
+    - unit: service
+      content: |
+        [Unit]
+        Description=Restart containers still holding a Docker socket Docker replaced
+        After=docker.service
+        Requires=docker.service
+
+        [Service]
+        Type=oneshot
+        ExecStart=/usr/local/sbin/remount-docker-socket
+    - unit: timer
+      content: |
+        [Unit]
+        Description=Check every minute for containers holding a replaced Docker socket
+
+        [Timer]
+        OnBootSec=2min
+        OnUnitActiveSec=1min
+
+        [Install]
+        WantedBy=timers.target
+  loop_control:
+    label: "{{ item.unit }}"
+  notify: Reload systemd
+
+- name: Enable the Docker socket watchdog
+  ansible.builtin.systemd_service:
+    name: remount-docker-socket.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  ignore_errors: "{{ ansible_check_mode }}"

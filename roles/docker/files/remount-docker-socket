@@ -1,0 +1,22 @@
+#!/bin/sh
+# Restarts each running container that bind-mounts the Docker socket and started
+# before the current socket was created. A bind mount pins the file it found;
+# Docker makes a new socket each time it restarts, and live-restore keeps the
+# container running on the old one, where nothing answers. A restart mounts the
+# current socket; the ID is unchanged.
+set -u
+
+created=$(stat -L -c %Y /var/run/docker.sock) || exit 1
+
+for id in $(docker ps --quiet --no-trunc); do
+  info=$(docker inspect --format '{{.Name}} {{.State.StartedAt}}{{range .Mounts}} {{.Source}}{{end}}' "$id" 2>/dev/null) || continue
+  set -- $info
+  name=${1#/} started=$2
+  shift 2
+  case " $* " in *" /var/run/docker.sock "* | *" /run/docker.sock "*) ;; *) continue ;; esac
+
+  [ "$(date -d "$started" +%s)" -lt "$created" ] || continue
+
+  echo "$name started before the Docker socket was recreated; restarting it"
+  docker restart "$id" >/dev/null
+done
