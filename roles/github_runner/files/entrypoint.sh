@@ -7,6 +7,8 @@ cd /home/runner
 token="$RUNNER_TOKEN"
 # Kept out of the job's environment.
 unset RUNNER_TOKEN
-./config.sh --unattended --ephemeral --replace --name golem --labels golem \
+# A name of its own (the container ID): reusing one with --replace keeps the
+# runner ID, and GitHub refuses it while the last container's session lingers.
+./config.sh --unattended --ephemeral --name "golem-$(hostname)" --labels golem \
     --url "$RUNNER_URL" --token "$token"
 exec ./run.sh
