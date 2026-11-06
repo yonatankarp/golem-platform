@@ -1,0 +1,61 @@
+#!/bin/sh
+# Pages through the NAS's alert relay when a GitHub runner has not been
+# listening for jobs (or running one) for 5 minutes, or when the runner user's
+# rootless Docker has been down that long. A unit that is stopped, failed or
+# crash-looping never logs "Listening for Jobs" in its current invocation, so
+# all three page the same way. Each is paged once, and its Recovery is sent
+# when it is back.
+# Usage: page-github-runners <relay /alerts URL> <runner user> <runner unit>...
+set -u
+
+relay=$1 user=$2
+shift 2
+header=/srv/monitoring/alert-relay.header
+state=${STATE_DIRECTORY:?run me from page-github-runners.service}
+# A restarted runner was listening 7-12 s after systemd started it (measured
+# 2026-11-06); a job's end and the next container's start are minutes apart at most.
+hold=300
+
+# The relay's /alerts envelope, as page-unhealthy-while-dozzle-blind sends it.
+# The relay keys health by a hex container ID, so a unit gets a stable one from
+# its name. Unit names here are [a-z0-9@.-], so need no escaping.
+post() {
+  printf '{"version":1,"rule":"%s","containerId":"%s","container":"%s","host":"Golem","event":"health_status","healthStatus":"%s","exitCode":"","timestamp":"%s"}' \
+    "$1" "$2" "$3" "$4" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" |
+    curl -fsS -m 10 -o /dev/null -H @"$header" -H 'Content-Type: application/json' --data-binary @- "$relay"
+}
+
+# check <name> <ok: yes or no>. The marker holds when it went wrong, or `paged`.
+check() {
+  id=$(printf %s "$1" | sha256sum | cut -c1-12)
+  marker=$state/$id
+  if [ "$2" = yes ]; then
+    [ -e "$marker" ] || return 0
+    if [ "$(cat "$marker")" = paged ]; then
+      post Recovery "$id" "$1" healthy || return 0
+      echo "paged $1 recovered"
+    fi
+    rm -f "$marker"
+    return 0
+  fi
+  [ -e "$marker" ] || { date +%s >"$marker"; return 0; }
+  since=$(cat "$marker")
+  [ "$since" != paged ] && [ $(($(date +%s) - since)) -ge $hold ] || return 0
+  post Unhealthy "$id" "$1" unhealthy && echo paged >"$marker" && echo "paged $1 down"
+}
+
+ok=no
+systemctl --user -M "$user@" is-active --quiet docker.service && ok=yes
+check "docker.service of $user" $ok
+
+for unit; do
+  ok=no
+  # Between two containers the unit is `activating`, and has no invocation yet.
+  if [ "$(systemctl show -P ActiveState "$unit")" = active ]; then
+    invocation=$(systemctl show -P InvocationID "$unit")
+    [ -n "$invocation" ] &&
+      journalctl -q -o cat -u "$unit" _SYSTEMD_INVOCATION_ID="$invocation" |
+      grep -q -E 'Listening for Jobs|Running job' && ok=yes
+  fi
+  check "$unit" $ok
+done

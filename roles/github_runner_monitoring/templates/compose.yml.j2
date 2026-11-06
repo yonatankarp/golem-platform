@@ -1,0 +1,92 @@
+name: runner-monitoring
+
+x-logging: &logging
+  driver: json-file
+  options: {max-size: 10m, max-file: "3"}
+
+services:
+  # Dialled by the NAS's Dozzle as a second golem host, "Golem runners": the
+  # containers of the runner user's rootless Docker -- each runner, the
+  # containers its jobs start, and their CPU and memory. Configured like the
+  # monitoring role's dozzle-agent, with the same mTLS pair, so it runs here in
+  # the system Docker and never in the rootless one: any job could read that
+  # key there, and with it pose as the NAS's Dozzle to golem's own agent.
+  #
+  # The hub pushes its alert rules here too. No alert-relay host entry, so they
+  # page nothing: a crash-looping runner is a new container every few seconds,
+  # which neither Dozzle's cooldown nor the relay's per-container ceiling
+  # bounds, and job containers routinely exit non-zero. page-github-runners
+  # pages runners instead. The rules (and the relay's token in them) stay in a
+  # tmpfs.
+  dozzle-agent:
+    image: docker.io/amir20/dozzle:v11.1.2@sha256:55204b375a03c92310d79b659b66217bd38f5675b361e2b5e7b4a03139bbb077
+    restart: unless-stopped
+    logging: *logging
+    command: [agent]
+    user: "65534:65534"
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777
+      - /data:mode=1777
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      socket-proxy:
+        condition: service_healthy
+    # default is not internal: the published port needs it.
+    networks: [default, docker-api]
+    ports:
+      - "{{ github_runner_dozzle_agent_address }}:7007"
+    labels:
+      golem.dozzle-agent.certificate-sha256: "{{ vault_dozzle_agent_certificate | hash('sha256') }}"
+    volumes:
+      - /srv/monitoring/dozzle-agent/cert.pem:/certs/cert.pem:ro
+      - /srv/monitoring/dozzle-agent/key.pem:/certs/key.pem:ro
+    environment:
+      DOCKER_HOST: tcp://socket-proxy:2375
+      DOZZLE_CERT: /certs/cert.pem
+      DOZZLE_HOSTNAME: Golem runners
+      DOZZLE_KEY: /certs/key.pem
+      DOZZLE_NO_ANALYTICS: "true"
+    healthcheck:
+      test: [CMD, /dozzle, healthcheck]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # Mounting the rootless socket grants what the runner user already has, and
+  # this proxy narrows it to reading. create_host_path is off: the socket is
+  # missing while the rootless daemon is down (and at boot, until runner's
+  # systemd manager starts it), and Docker would create a root-owned directory
+  # in its place, which the daemon then cannot replace. The proxy fails to start
+  # instead, and the docker role's remount-docker-socket starts it once the
+  # socket is back, as it restarts it when the daemon replaces the socket.
+  socket-proxy:
+    image: lscr.io/linuxserver/socket-proxy:3.4.5@sha256:ca6c0301a652232d02cb0ff9f1c5d20d9b339f391e1c1dffaae6ef3bfc59d009
+    restart: unless-stopped
+    logging: *logging
+    networks: [docker-api]
+    read_only: true
+    tmpfs: [/run]
+    volumes:
+      - type: bind
+        source: {{ github_runner_monitoring_socket }}
+        target: /var/run/docker.sock
+        read_only: true
+        bind:
+          create_host_path: false
+    environment:
+      ALLOW_LOGS: "1"
+      CONTAINERS: "1"
+      EVENTS: "1"
+      INFO: "1"
+      POST: "0"
+    healthcheck:
+      test: [CMD-SHELL, "wget -q -O - http://127.0.0.1:2375/_ping | grep -qx OK"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+networks:
+  docker-api:
+    internal: true

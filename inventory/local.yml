@@ -34,6 +34,9 @@ all:
     # never 0.0.0.0, because ufw does not filter Docker-published ports. An IP
     # rather than a name for the same reason as beszel_hub_url.
     dozzle_agent_address: 100.104.25.70:7007
+    # The second Dozzle agent, for the runners' rootless Docker: another host
+    # in the NAS's Dozzle, on the same address for the same reasons.
+    github_runner_dozzle_agent_address: 100.104.25.70:7008
     # The NAS's alert relay, which pages Pushover; the port is nas-platform's
     # dozzle_alert_relay_port, reached through the NAS's Tailscale Serve forward.
     dozzle_alert_relay_url: "http://{{ nas_tailnet_address }}:8081/alerts"
