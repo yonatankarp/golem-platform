@@ -2,12 +2,9 @@
   ansible.builtin.systemd_service:
     daemon_reload: true
 
-# Cancels a job in progress: it reruns on the next container.
-- name: Restart the runners
+# Running runner containers are not its children: their jobs carry on.
+- name: Restart the runner scheduler
   ansible.builtin.systemd_service:
-    name: "github-runner@{{ item.name }}.service"
+    name: github-runner-scheduler.service
     state: restarted
     daemon_reload: true
-  loop: "{{ github_runner_units }}"
-  loop_control:
-    label: "{{ item.name }}"

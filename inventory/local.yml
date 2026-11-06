@@ -25,9 +25,13 @@ all:
     github_runner_memory_max: 3G
     github_runner_cpu_quota: 300%
     github_runner_cpu_weight: 20
-    # More than one runner for a target, so its jobs don't queue behind each other.
-    github_runner_instances:
-      yonatankarp/the-stack: 2
+    # Runner slots, shared: the scheduler gives them to whichever targets have jobs
+    # queued. Two heavy jobs fill golem's spare CPU; four lets light ones through
+    # beside them.
+    github_runner_max: 4
+    # Kept ready, so the-stack's next gate starts at once instead of in ~30 s.
+    github_runner_warm:
+      yonatankarp/the-stack: 1
     github_runner_targets:
       - yonatankarp/before-dark
       - yonatankarp/the-stack

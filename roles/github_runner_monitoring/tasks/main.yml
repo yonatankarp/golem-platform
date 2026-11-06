@@ -3,13 +3,9 @@
     database: passwd
     key: "{{ github_runner_user }}"
 
-- name: Name the rootless Docker socket and the runner units
+- name: Name the rootless Docker socket
   ansible.builtin.set_fact:
     github_runner_monitoring_socket: "/run/user/{{ ansible_facts.getent_passwd[github_runner_user][1] }}/docker.sock"
-    # github_runner's own list (it runs just before this role), so a target's
-    # second runner (<target>-2) is paged for too.
-    github_runner_monitoring_units: >-
-      {{ github_runner_units | map(attribute='name') | map('regex_replace', '^(.*)$', 'github-runner@\1.service') | join(' ') }}
 
 - name: Create the runner monitoring directory
   ansible.builtin.file:
@@ -46,18 +42,18 @@
     - unit: service
       content: |
         [Unit]
-        Description=Page GitHub runners that have stopped listening for jobs
+        Description=Page when the GitHub runner scheduler or its Docker stops working
 
         [Service]
         Type=oneshot
         # Survives a reboot, so a runner paged before it still gets its Recovery.
         StateDirectory=page-github-runners
         StateDirectoryMode=0700
-        ExecStart=/usr/local/sbin/page-github-runners {{ dozzle_alert_relay_url }} {{ github_runner_user }} {{ github_runner_monitoring_units }}
+        ExecStart=/usr/local/sbin/page-github-runners {{ dozzle_alert_relay_url }} {{ github_runner_user }} /run/github-runner-scheduler/status.json
     - unit: timer
       content: |
         [Unit]
-        Description=Check every minute that the GitHub runners are listening for jobs
+        Description=Check every minute that the GitHub runner scheduler is working
 
         [Timer]
         OnBootSec=2min
