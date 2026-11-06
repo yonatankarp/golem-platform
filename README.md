@@ -99,9 +99,10 @@ organisation. Set it up once:
 1. Create a fine-grained PAT per owner, without expiry, at github.com >
    Settings > Developer settings > Fine-grained tokens:
    - `yonatankarp`: resource owner yonatankarp, all repositories, repository
-     permission *Administration: read and write*.
-   - an organisation: resource owner that organisation, organisation permission
-     *Self-hosted runners: read and write*. Its Default runner group must keep
+     permissions *Administration: read and write* and *Actions: read*.
+   - an organisation: resource owner that organisation, all repositories,
+     organisation permission *Self-hosted runners: read and write* and
+     repository permission *Actions: read*. Its Default runner group must keep
      *Allow public repositories* off (Settings > Actions > Runner groups).
 2. On golem, `ansible-vault create group_vars/all/vault_github_runner.yml`:
 
@@ -118,16 +119,21 @@ Until step 2 is done every converge stops at this role, so everything before
 it still converges; only `github_runner_monitoring`, after it, waits too. It also stops if any organisation in the list
 lets public repositories use its runners.
 
-Each job gets a fresh container: `github-runner@<target>` (a system unit) mints
-a one-hour registration token from the PAT as root, starts a container from the
-runner image (GitHub's `actions-runner`, Ubuntu like their hosted runners, plus
-what `roles/github_runner/files/Dockerfile` adds of a hosted runner's tools:
-Compose, Ruby, zip, python3-venv, Xvfb and the libraries Godot draws with; no
-`gh`), which registers, takes one job and
-exits; `--rm` discards it with the workspace, and systemd starts the next. The
-PAT stays in `/etc/github-runner`, root-only, and never enters a container.
-Taking a target out of the list leaves its unit running: stop and disable it by
-hand.
+The targets share `github_runner_max` runner slots. `github-runner-scheduler`
+(a root service, `roles/github_runner/files/scheduler.py`) looks every 15 s at
+the jobs queued for `golem` in each target's repositories and which runners are
+busy, and starts a runner container for whichever target is short, in turn,
+until the slots are full; a spare idle runner makes way when another target
+needs its slot, and goes after 10 idle minutes. `github_runner_warm` keeps a
+target's next runner ready. Each container is fresh, from the runner image
+(GitHub's `actions-runner`, Ubuntu like their hosted runners, plus what
+`roles/github_runner/files/Dockerfile` adds of a hosted runner's tools: Compose,
+Ruby, zip, python3-venv, Xvfb and the libraries Godot draws with; no `gh`): it
+registers with a one-hour token the scheduler minted, takes one job and exits,
+and `--rm` discards it with the workspace. The PATs stay in `/etc/github-runner`,
+root-only, and need *Actions: read* besides managing runners (an organisation's
+on all its repositories). Restarting the scheduler, as a converge that changes it
+does, leaves running jobs alone.
 
 The containers run under the `runner` user's rootless Docker, never the system
 one, so nothing a job does is root on golem, and the user is kept off the LAN,
@@ -139,24 +145,23 @@ job's, so `docker run -v $PWD:...` in a job mounts nothing useful. Tools
 (`$RUNNER_TOOL_CACHE`), the one thing besides images that outlives a job.
 Everything shares one cap (`github_runner_memory_max`,
 `github_runner_cpu_quota`), at a low CPU weight (`github_runner_cpu_weight`), so
-CI slows down whenever Foundry or the agent want the CPU. A target gets one
-runner unless `github_runner_instances` gives it more (`github-runner@<target>`,
-then `<target>-2`...); each takes one job at a time.
+CI slows down whenever Foundry or the agent want the CPU.
 
 The NAS's Dozzle shows them, with their CPU and memory, as a second host,
 **Golem runners**: `github_runner_monitoring` runs another Dozzle agent (port
 7008 on the tailnet address) against the rootless socket, in the system Docker
 so no job can reach its mTLS key. Dozzle's alert rules do not page from it.
 Instead `page-github-runners.timer` pages through the NAS's alert relay, on the
-Golem Pushover application, when a runner has not been listening for jobs or
-running one for 5 minutes (stopped, failed or crash-looping alike), or when
+Golem Pushover application, when the scheduler has not finished a pass for 5
+minutes (stopped, crash-looping, or unable to reach GitHub alike), or when
 runner's rootless `docker.service` has been down that long, and sends a
 Recovery once it is back. The page's "Open in Dozzle" link leads nowhere: the
-ID in it stands for a unit, not a container.
+ID in it stands for a check, not a container.
 
 To look at them:
 
 ```sh
-systemctl status 'github-runner@*'
+journalctl -u github-runner-scheduler -f   # what it starts and stops, and the queues
+sudo cat /run/github-runner-scheduler/status.json
 sudo -u runner DOCKER_HOST=unix:///run/user/$(id -u runner)/docker.sock docker ps
 ```

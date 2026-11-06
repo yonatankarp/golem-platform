@@ -168,33 +168,6 @@
   loop: "{{ github_runner_targets | map('split', '/') | map('first') | unique | list }}"
   no_log: true
 
-# One unit per runner: the target's own name for its first, -2, -3 ... for the
-# rest, so adding a runner leaves the first one's unit as it was.
-- name: List the runners
-  ansible.builtin.set_fact:
-    github_runner_units: >-
-      {{ github_runner_units | default([])
-         + [{'target': item.0, 'name': item.0 | replace('/', '-') ~ ('' if item.1 == 1 else '-' ~ item.1)}] }}
-  loop: "{{ github_runner_targets | product(range(1, 5)) | list }}"
-  loop_control:
-    label: "{{ item.0 }} #{{ item.1 }}"
-  when: item.1 <= github_runner_instances[item.0] | default(1)
-
-- name: Name each runner's target
-  ansible.builtin.copy:
-    dest: "/etc/github-runner/{{ item.name }}.target"
-    content: "{{ item.target }}"
-    mode: "0600"
-  loop: "{{ github_runner_units }}"
-  loop_control:
-    label: "{{ item.name }}"
-
-- name: Install the registration token helper
-  ansible.builtin.copy:
-    src: github-runner-token
-    dest: /usr/local/sbin/github-runner-token
-    mode: "0755"
-
 - name: Create the runner image's build context
   ansible.builtin.file:
     path: /etc/github-runner/image
@@ -212,8 +185,8 @@
   loop_control:
     label: "{{ item.src }}"
 
-# Tagged by its inputs, so a change to either builds a new image and the units
-# move to it; an unchanged one is not rebuilt.
+# Tagged by its inputs, so a change to either builds a new image that new runners
+# start from; an unchanged one is not rebuilt.
 - name: Name the runner image
   ansible.builtin.set_fact:
     github_runner_image: >-
@@ -228,54 +201,67 @@
     rebuild: never
   ignore_errors: "{{ ansible_check_mode }}"
 
-# One container per job: it registers, takes a job, exits, and --rm discards it
-# with the job's workspace; Restart= starts the next from a clean image. The
-# + step runs as root, so only a one-hour registration token reaches the
-# runner. The container runs as its root, which rootless Docker maps to the
-# runner user: the one uid that may use the Docker socket jobs are given. Paths
-# inside it are not the daemon's, so a job's `docker run -v $PWD:...` mounts
-# nothing useful (container: jobs and services are unaffected only if they mount
-# no workspace).
-- name: Define the runner service
+# The scheduler shares github_runner_max slots between the targets: it starts a
+# runner container (one job, then gone) for whichever has jobs queued, stops a
+# spare idle one when another target needs the slot, and keeps
+# github_runner_warm runners ready. It runs as root, so the PATs never leave
+# /etc/github-runner; a container gets a one-hour registration token. The
+# containers run as their root, which rootless Docker maps to the runner user:
+# the one uid that may use the Docker socket jobs are given. Paths inside one
+# are not the daemon's, so a job's `docker run -v $PWD:...` mounts nothing
+# useful. Restarting the scheduler leaves running jobs alone.
+- name: Install the runner scheduler
   ansible.builtin.copy:
-    dest: /etc/systemd/system/github-runner@.service
+    src: scheduler.py
+    dest: /usr/local/sbin/github-runner-scheduler
+    mode: "0755"
+  notify: Restart the runner scheduler
+
+- name: Configure the runner scheduler
+  ansible.builtin.copy:
+    dest: /etc/github-runner/scheduler.json
+    content: "{{ github_runner_scheduler | to_nice_json }}\n"
+    mode: "0600"
+  vars:
+    github_runner_scheduler:
+      targets: "{{ github_runner_targets }}"
+      max_runners: "{{ github_runner_max }}"
+      warm: "{{ github_runner_warm }}"
+      # Seconds. A runner registered and listening 7-12 s after its container
+      # started (measured 2026-11-06), so 90 s of grace is generous.
+      poll: 15
+      grace: 90
+      idle_after: 600
+      socket: "{{ github_runner_runtime_dir }}/docker.sock"
+      image: "{{ github_runner_image }}"
+  notify: Restart the runner scheduler
+
+- name: Define the runner scheduler
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/github-runner-scheduler.service
     content: |
       [Unit]
-      Description=Ephemeral GitHub Actions runner for %i
+      Description=Start GitHub runner containers for the targets with jobs waiting
       Wants=network-online.target
       After=network-online.target user@{{ github_runner_uid }}.service
       Requires=user@{{ github_runner_uid }}.service
 
       [Service]
-      User={{ github_runner_user }}
-      RuntimeDirectory=github-runner/%i
+      ExecStart=/usr/bin/python3 /usr/local/sbin/github-runner-scheduler
+      RuntimeDirectory=github-runner-scheduler
       RuntimeDirectoryMode=0700
-      Environment=DOCKER_HOST=unix://{{ github_runner_runtime_dir }}/docker.sock
-      ExecStartPre=+/usr/local/sbin/github-runner-token %i {{ github_runner_user }}
-      ExecStartPre=-/usr/bin/docker rm -f github-runner-%i
-      ExecStart=/usr/bin/docker run --rm --name github-runner-%i --pull never \
-        --user 0 -e RUNNER_ALLOW_RUNASROOT=1 \
-        -e RUNNER_TOOL_CACHE=/opt/hostedtoolcache \
-        --env-file /run/github-runner/%i/env \
-        -v {{ github_runner_runtime_dir }}/docker.sock:/var/run/docker.sock \
-        -v github-runner-toolcache:/opt/hostedtoolcache \
-        {{ github_runner_image }}
       Restart=always
-      RestartSec=5
-      TimeoutStopSec=30
+      RestartSec=10
 
       [Install]
       WantedBy=multi-user.target
     mode: "0644"
-  notify: Restart the runners
+  notify: Restart the runner scheduler
 
-- name: Start the runners
+- name: Start the runner scheduler
   ansible.builtin.systemd_service:
-    name: "github-runner@{{ item.name }}.service"
+    name: github-runner-scheduler.service
     enabled: true
     state: started
     daemon_reload: true
-  loop: "{{ github_runner_units }}"
-  loop_control:
-    label: "{{ item.name }}"
   ignore_errors: "{{ ansible_check_mode }}"

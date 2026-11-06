@@ -1,19 +1,17 @@
 #!/bin/sh
-# Pages through the NAS's alert relay when a GitHub runner has not been
-# listening for jobs (or running one) for 5 minutes, or when the runner user's
-# rootless Docker has been down that long. A unit that is stopped, failed or
-# crash-looping never logs "Listening for Jobs" in its current invocation, so
-# all three page the same way. Each is paged once, and its Recovery is sent
-# when it is back.
-# Usage: page-github-runners <relay /alerts URL> <runner user> <runner unit>...
+# Pages through the NAS's alert relay when the GitHub runner scheduler has not
+# finished a pass for 5 minutes, or when the runner user's rootless Docker has
+# been down that long. The scheduler rewrites its status file only after a pass
+# that reached GitHub and Docker and started what was needed, so a stopped or
+# crash-looping scheduler, a dead PAT and an unreachable GitHub all page the
+# same way. Each is paged once, and its Recovery is sent when it is back.
+# Usage: page-github-runners <relay /alerts URL> <runner user> <scheduler status file>
 set -u
 
-relay=$1 user=$2
-shift 2
+relay=$1 user=$2 status=$3
 header=/srv/monitoring/alert-relay.header
 state=${STATE_DIRECTORY:?run me from page-github-runners.service}
-# A restarted runner was listening 7-12 s after systemd started it (measured
-# 2026-11-06); a job's end and the next container's start are minutes apart at most.
+# The scheduler passes every 15 s; five minutes is twenty missed passes.
 hold=300
 
 # The relay's /alerts envelope, as page-unhealthy-while-dozzle-blind sends it.
@@ -48,14 +46,7 @@ ok=no
 systemctl --user -M "$user@" is-active --quiet docker.service && ok=yes
 check "docker.service of $user" $ok
 
-for unit; do
-  ok=no
-  # Between two containers the unit is `activating`, and has no invocation yet.
-  if [ "$(systemctl show -P ActiveState "$unit")" = active ]; then
-    invocation=$(systemctl show -P InvocationID "$unit")
-    [ -n "$invocation" ] &&
-      journalctl -q -o cat -u "$unit" _SYSTEMD_INVOCATION_ID="$invocation" |
-      grep -q -E 'Listening for Jobs|Running job' && ok=yes
-  fi
-  check "$unit" $ok
-done
+# The check itself holds for $hold before paging, so a fresh pass is all it needs.
+ok=no
+[ -e "$status" ] && [ $(($(date +%s) - $(stat -c %Y "$status"))) -lt 120 ] && ok=yes
+check "github-runner-scheduler" $ok
