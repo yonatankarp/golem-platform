@@ -1,6 +1,6 @@
 argument_specs:
   main:
-    short_description: GitHub Actions runners for private repositories, with rootless Docker as their image cache
+    short_description: Ephemeral GitHub Actions runner containers for private repositories, under rootless Docker
     options:
       github_runner_user:
         type: str
@@ -17,10 +17,6 @@ argument_specs:
       github_runner_cpu_quota:
         type: str
         required: true
-      github_runner_version:
-        type: str
-      github_runner_sha256:
-        type: str
       github_runner_prune_after:
         type: str
       vault_github_runner_tokens:

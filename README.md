@@ -96,10 +96,10 @@ fork's pull request would run its code here. Each entry in
 repository (a personal account has no shared pool), a bare name to a whole
 organisation. Set it up once:
 
-1. Create a fine-grained PAT per owner, at github.com > Settings > Developer
-   settings > Fine-grained tokens:
-   - `yonatankarp`: resource owner yonatankarp, only the repositories listed,
-     repository permission *Administration: read and write*.
+1. Create a fine-grained PAT per owner, without expiry, at github.com >
+   Settings > Developer settings > Fine-grained tokens:
+   - `yonatankarp`: resource owner yonatankarp, all repositories, repository
+     permission *Administration: read and write*.
    - an organisation: resource owner that organisation, organisation permission
      *Self-hosted runners: read and write*. Its Default runner group must keep
      *Allow public repositories* off (Settings > Actions > Runner groups).
@@ -118,21 +118,30 @@ Until step 2 is done every converge stops at this role, the last one, so
 everything else still converges. It also stops if any organisation in the list
 lets public repositories use its runners.
 
-The PAT only mints registration tokens; a runner that is already registered
-never needs it again. Taking a target out of the list leaves its runner
-registered and its unit running: stop it and remove it on GitHub by hand.
+Each job gets a fresh container: `github-runner@<target>` (a system unit) mints
+a one-hour registration token from the PAT as root, starts a container from the
+runner image (GitHub's `actions-runner`, Ubuntu like their hosted runners, plus
+`roles/github_runner/files/Dockerfile`), which registers, takes one job and
+exits; `--rm` discards it with the workspace, and systemd starts the next. The
+PAT stays in `/etc/github-runner`, root-only, and never enters a container.
+Taking a target out of the list leaves its unit running: stop and disable it by
+hand.
 
-Jobs run as the `runner` user, which has no sudo and is kept off the LAN, the
-tailnet and Docker's networks like the agent. `docker` in a job reaches a
-rootless Docker of the runner's own, whose image store under `~runner` is the
-pull cache, shared by every runner and pruned of anything older than two weeks.
-Everything the runners start shares one cap (`github_runner_memory_max`,
-`github_runner_cpu_quota`). Runners share a uid, so one repository's job can
-read another's workspace: give them only repositories you trust alike.
+The containers run under the `runner` user's rootless Docker, never the system
+one, so nothing a job does is root on golem, and the user is kept off the LAN,
+the tailnet and Docker's networks like the agent. `docker` in a job reaches that
+same daemon, whose image store under `~runner` is the pull cache, shared by
+every runner and pruned of anything older than two weeks. Its paths are not the
+job's, so `docker run -v $PWD:...` in a job mounts nothing useful. Tools
+`actions/setup-*` download go to the `github-runner-toolcache` volume
+(`$RUNNER_TOOL_CACHE`), the one thing besides images that outlives a job.
+Everything shares one cap (`github_runner_memory_max`,
+`github_runner_cpu_quota`). These containers are not in Dozzle, which watches
+the system Docker.
 
-The machine is Debian, not GitHub's Ubuntu image: most of its preinstalled
-tools are missing, and `actions/setup-python` has no Debian builds. A workflow
-may need a `container:` or its own installs before it runs here.
+To look at them:
 
-To look at them: `sudo -u runner XDG_RUNTIME_DIR=/run/user/$(id -u runner)
-systemctl --user status 'github-runner@*'`.
+```sh
+systemctl status 'github-runner@*'
+sudo -u runner DOCKER_HOST=unix:///run/user/$(id -u runner)/docker.sock docker ps
+```
