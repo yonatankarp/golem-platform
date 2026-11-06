@@ -32,6 +32,11 @@ all:
     # Kept ready, so the-stack's next gate starts at once instead of in ~30 s.
     github_runner_warm:
       yonatankarp/the-stack: 1
+    # the-stack's jobs each run Godot. Four at once under the 300% quota starved
+    # them past the gate's own time limits (2026-11-06); two leave the other
+    # two slots for the light repositories.
+    github_runner_target_max:
+      yonatankarp/the-stack: 2
     github_runner_targets:
       - yonatankarp/before-dark
       - yonatankarp/the-stack
