@@ -1,3 +1,5 @@
 # How long a pulled image or build cache entry is kept: long enough to be a
 # cache, short enough that it cannot fill the disk Foundry shares.
 github_runner_prune_after: 336h
+github_runner_cpu_weight: 100
+github_runner_instances: {}

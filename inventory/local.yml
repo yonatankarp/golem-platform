@@ -17,10 +17,17 @@ all:
     agent_cpu_quota: 200%
     # GitHub Actions runners for private repositories, each registered to one
     # repository (owner/name) or a whole organisation (name). Capped like the
-    # agent; the cap covers their rootless Docker and every job container.
+    # agent; the cap covers their rootless Docker and every job container. Up to
+    # three threads while golem is idle, but at a low CPU weight, so Foundry and
+    # the agent win whenever they want the CPU. One the-stack gate peaked at the
+    # old 2G cap (2026-11-06), so two side by side get 3G.
     github_runner_user: runner
-    github_runner_memory_max: 2G
-    github_runner_cpu_quota: 200%
+    github_runner_memory_max: 3G
+    github_runner_cpu_quota: 300%
+    github_runner_cpu_weight: 20
+    # More than one runner for a target, so its jobs don't queue behind each other.
+    github_runner_instances:
+      yonatankarp/the-stack: 2
     github_runner_targets:
       - yonatankarp/before-dark
       - yonatankarp/the-stack

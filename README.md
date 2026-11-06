@@ -138,7 +138,10 @@ job's, so `docker run -v $PWD:...` in a job mounts nothing useful. Tools
 `actions/setup-*` download go to the `github-runner-toolcache` volume
 (`$RUNNER_TOOL_CACHE`), the one thing besides images that outlives a job.
 Everything shares one cap (`github_runner_memory_max`,
-`github_runner_cpu_quota`). These containers are not in Dozzle, which watches
+`github_runner_cpu_quota`), at a low CPU weight (`github_runner_cpu_weight`), so
+CI slows down whenever Foundry or the agent want the CPU. A target gets one
+runner unless `github_runner_instances` gives it more (`github-runner@<target>`,
+then `<target>-2`...); each takes one job at a time. These containers are not in Dozzle, which watches
 the system Docker.
 
 To look at them:

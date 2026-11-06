@@ -78,6 +78,7 @@
       [Slice]
       MemoryMax={{ github_runner_memory_max }}
       CPUQuota={{ github_runner_cpu_quota }}
+      CPUWeight={{ github_runner_cpu_weight }}
     mode: "0644"
   notify: Reload systemd
 
@@ -167,12 +168,26 @@
   loop: "{{ github_runner_targets | map('split', '/') | map('first') | unique | list }}"
   no_log: true
 
+# One unit per runner: the target's own name for its first, -2, -3 ... for the
+# rest, so adding a runner leaves the first one's unit as it was.
+- name: List the runners
+  ansible.builtin.set_fact:
+    github_runner_units: >-
+      {{ github_runner_units | default([])
+         + [{'target': item.0, 'name': item.0 | replace('/', '-') ~ ('' if item.1 == 1 else '-' ~ item.1)}] }}
+  loop: "{{ github_runner_targets | product(range(1, 5)) | list }}"
+  loop_control:
+    label: "{{ item.0 }} #{{ item.1 }}"
+  when: item.1 <= github_runner_instances[item.0] | default(1)
+
 - name: Name each runner's target
   ansible.builtin.copy:
-    dest: "/etc/github-runner/{{ item | replace('/', '-') }}.target"
-    content: "{{ item }}"
+    dest: "/etc/github-runner/{{ item.name }}.target"
+    content: "{{ item.target }}"
     mode: "0600"
-  loop: "{{ github_runner_targets }}"
+  loop: "{{ github_runner_units }}"
+  loop_control:
+    label: "{{ item.name }}"
 
 - name: Install the registration token helper
   ansible.builtin.copy:
@@ -256,9 +271,11 @@
 
 - name: Start the runners
   ansible.builtin.systemd_service:
-    name: "github-runner@{{ item | replace('/', '-') }}.service"
+    name: "github-runner@{{ item.name }}.service"
     enabled: true
     state: started
     daemon_reload: true
-  loop: "{{ github_runner_targets }}"
+  loop: "{{ github_runner_units }}"
+  loop_control:
+    label: "{{ item.name }}"
   ignore_errors: "{{ ansible_check_mode }}"
