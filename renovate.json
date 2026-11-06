@@ -11,6 +11,7 @@
   "automergeStrategy": "rebase",
   "rebaseWhen": "behind-base-branch",
   "enabledManagers": [
+    "dockerfile",
     "github-actions",
     "ansible-galaxy",
     "pip_requirements",
