@@ -1,22 +1,34 @@
 #!/bin/sh
-# Restarts each running container that bind-mounts the Docker socket and started
-# before the current socket was created. A bind mount pins the file it found;
-# Docker makes a new socket each time it restarts, and live-restore keeps the
-# container running on the old one, where nothing answers. A restart mounts the
-# current socket; the ID is unchanged.
+# Restarts each running container that bind-mounts a Docker socket and started
+# before that socket was created. A bind mount pins the file it found; Docker
+# makes a new socket each time it restarts, and live-restore keeps the container
+# running on the old one, where nothing answers. A restart mounts the current
+# socket; the ID is unchanged. Covers the system socket and the runner user's
+# rootless one, which runner-monitoring's socket proxy mounts.
+#
+# Also starts such a container whose last start failed while its socket was
+# missing: the rootless socket exists only once runner's systemd manager has
+# started that daemon, after the system Docker restores its containers at boot.
+# A container stopped by hand has no start error, so stays stopped.
 set -u
 
-created=$(stat -L -c %Y /var/run/docker.sock) || exit 1
-
-for id in $(docker ps --quiet --no-trunc); do
-  info=$(docker inspect --format '{{.Name}} {{.State.StartedAt}}{{range .Mounts}} {{.Source}}{{end}}' "$id" 2>/dev/null) || continue
+for id in $(docker ps --all --quiet --no-trunc); do
+  info=$(docker inspect --format '{{.Name}} {{.State.Running}} {{.State.StartedAt}} {{if .State.Error}}failed{{else}}-{{end}}{{range .Mounts}} {{.Source}}{{end}}' "$id" 2>/dev/null) || continue
   set -- $info
-  name=${1#/} started=$2
-  shift 2
-  case " $* " in *" /var/run/docker.sock "* | *" /run/docker.sock "*) ;; *) continue ;; esac
-
-  [ "$(date -d "$started" +%s)" -lt "$created" ] || continue
-
-  echo "$name started before the Docker socket was recreated; restarting it"
-  docker restart "$id" >/dev/null
+  name=${1#/} running=$2 started=$3 failed=$4
+  shift 4
+  for source; do
+    case $source in */docker.sock) ;; *) continue ;; esac
+    # Missing: its daemon is down, and nothing here can help until it is back.
+    created=$(stat -L -c %Y "$source" 2>/dev/null) || continue
+    if [ "$running" = true ]; then
+      [ "$(date -d "$started" +%s)" -lt "$created" ] || continue
+      echo "$name started before $source was recreated; restarting it"
+      docker restart "$id" >/dev/null
+    elif [ "$failed" = failed ]; then
+      echo "$name failed to start while $source was missing; starting it"
+      docker start "$id" >/dev/null
+    fi
+    break
+  done
 done

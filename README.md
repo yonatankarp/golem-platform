@@ -114,8 +114,8 @@ organisation. Set it up once:
 3. Converge. Then set `runs-on: [self-hosted, golem]` in the workflows that
    should use it.
 
-Until step 2 is done every converge stops at this role, the last one, so
-everything else still converges. It also stops if any organisation in the list
+Until step 2 is done every converge stops at this role, so everything before
+it still converges; only `github_runner_monitoring`, after it, waits too. It also stops if any organisation in the list
 lets public repositories use its runners.
 
 Each job gets a fresh container: `github-runner@<target>` (a system unit) mints
@@ -138,8 +138,18 @@ job's, so `docker run -v $PWD:...` in a job mounts nothing useful. Tools
 `actions/setup-*` download go to the `github-runner-toolcache` volume
 (`$RUNNER_TOOL_CACHE`), the one thing besides images that outlives a job.
 Everything shares one cap (`github_runner_memory_max`,
-`github_runner_cpu_quota`). These containers are not in Dozzle, which watches
-the system Docker.
+`github_runner_cpu_quota`).
+
+The NAS's Dozzle shows them, with their CPU and memory, as a second host,
+**Golem runners**: `github_runner_monitoring` runs another Dozzle agent (port
+7008 on the tailnet address) against the rootless socket, in the system Docker
+so no job can reach its mTLS key. Dozzle's alert rules do not page from it.
+Instead `page-github-runners.timer` pages through the NAS's alert relay, on the
+Golem Pushover application, when a runner has not been listening for jobs or
+running one for 5 minutes (stopped, failed or crash-looping alike), or when
+runner's rootless `docker.service` has been down that long, and sends a
+Recovery once it is back. The page's "Open in Dozzle" link leads nowhere: the
+ID in it stands for a unit, not a container.
 
 To look at them:
 
