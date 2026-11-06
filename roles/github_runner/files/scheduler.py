@@ -10,14 +10,13 @@ root: the PATs in /etc/github-runner stay there, and only a one-hour
 registration token reaches a container.
 """
 
+import http.client
 import json
 import os
 import secrets
 import subprocess
 import sys
 import time
-import urllib.error
-import urllib.request
 from datetime import datetime
 
 CONFIG = "/etc/github-runner/scheduler.json"
@@ -85,51 +84,70 @@ def scope(target):
     return f"repos/{target}" if "/" in target else f"orgs/{target}"
 
 
+class GitHubError(Exception):
+    pass
+
+
 class GitHub:
-    """GitHub's REST API with conditional GETs, which cost no rate limit when nothing changed."""
+    """GitHub's REST API over one kept-alive connection, with conditional GETs, which
+    cost no rate limit when nothing changed."""
 
     def __init__(self, token):
         self.token = token
+        self.conn = None
         self.cache = {}
         self.used = set()
 
     def request(self, method, path, etag=None):
-        req = urllib.request.Request(f"https://api.github.com/{path}", method=method, headers={
+        """(status, headers, parsed body or None). Reconnects once if the kept connection dropped."""
+        headers = {
             "Authorization": f"Bearer {self.token}",
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
             "User-Agent": "golem-runner-scheduler",
-        })
+        }
         if etag:
-            req.add_header("If-None-Match", etag)
-        return urllib.request.urlopen(req, timeout=20)
+            headers["If-None-Match"] = etag
+        for attempt in (1, 2):
+            if self.conn is None:
+                self.conn = http.client.HTTPSConnection("api.github.com", timeout=20)
+            try:
+                self.conn.request(method, f"/{path}", headers=headers)
+                r = self.conn.getresponse()
+                data = r.read()
+                return r.status, r.headers, json.loads(data) if data else None
+            except (http.client.HTTPException, OSError):
+                self.conn.close()
+                self.conn = None
+                if attempt == 2:
+                    raise
 
     def get(self, path):
         self.used.add(path)
         cached = self.cache.get(path)
-        try:
-            with self.request("GET", path, cached and cached[0]) as r:
-                body = json.load(r)
-                if r.headers.get("ETag"):
-                    self.cache[path] = (r.headers["ETag"], body)
-                return body
-        except urllib.error.HTTPError as e:
-            if e.code == 304 and cached:
-                return cached[1]
-            raise
+        status, headers, body = self.request("GET", path, cached and cached[0])
+        if status == 304 and cached:
+            return cached[1]
+        if status != 200:
+            raise GitHubError(f"GET {path}: {status} {body}")
+        if headers.get("ETag"):
+            self.cache[path] = (headers["ETag"], body)
+        return body
 
     def post(self, path):
-        with self.request("POST", path) as r:
-            return json.load(r)
+        status, _, body = self.request("POST", path)
+        if status not in (200, 201):
+            raise GitHubError(f"POST {path}: {status} {body}")
+        return body
 
     def delete(self, path):
-        try:
-            with self.request("DELETE", path):
-                return True
-        except urllib.error.HTTPError as e:
-            if e.code in (404, 422):  # gone already, or busy: leave it
-                return e.code == 404
-            raise
+        """True once the runner is gone; False if GitHub refused because it is busy."""
+        status, _, body = self.request("DELETE", path)
+        if status in (204, 404):
+            return True
+        if status == 422:
+            return False
+        raise GitHubError(f"DELETE {path}: {status} {body}")
 
     def forget_unused(self):
         """Drops cached answers not asked for since the last call, so finished runs don't pile up."""
