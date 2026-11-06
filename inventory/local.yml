@@ -23,7 +23,6 @@ all:
     github_runner_cpu_quota: 200%
     github_runner_targets:
       - yonatankarp/before-dark
-      - yonatankarp/nas-infrastructure
       - yonatankarp/the-stack
       - guillotine-mods
     # The NAS's tailnet IP, not its MagicDNS name: golem resolves through the
