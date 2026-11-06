@@ -121,7 +121,9 @@ lets public repositories use its runners.
 Each job gets a fresh container: `github-runner@<target>` (a system unit) mints
 a one-hour registration token from the PAT as root, starts a container from the
 runner image (GitHub's `actions-runner`, Ubuntu like their hosted runners, plus
-`roles/github_runner/files/Dockerfile`), which registers, takes one job and
+what `roles/github_runner/files/Dockerfile` adds of a hosted runner's tools:
+Compose, Ruby, zip, python3-venv, Xvfb and the libraries Godot draws with; no
+`gh`), which registers, takes one job and
 exits; `--rm` discards it with the workspace, and systemd starts the next. The
 PAT stays in `/etc/github-runner`, root-only, and never enters a container.
 Taking a target out of the list leaves its unit running: stop and disable it by
