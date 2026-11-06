@@ -15,6 +15,17 @@ all:
     # The agent must never starve Foundry: 8 GB RAM, 4 threads in total.
     agent_memory_max: 3G
     agent_cpu_quota: 200%
+    # GitHub Actions runners for private repositories, each registered to one
+    # repository (owner/name) or a whole organisation (name). Capped like the
+    # agent; the cap covers their rootless Docker and every job container.
+    github_runner_user: runner
+    github_runner_memory_max: 2G
+    github_runner_cpu_quota: 200%
+    github_runner_targets:
+      - yonatankarp/before-dark
+      - yonatankarp/nas-infrastructure
+      - yonatankarp/the-stack
+      - guillotine-mods
     # The NAS's tailnet IP, not its MagicDNS name: golem resolves through the
     # router, so neither golem nor its containers can resolve *.ts.net.
     nas_tailnet_address: 100.102.136.50

@@ -1,0 +1,8 @@
+# Only what a new registration starts from: each runner updates itself in place
+# afterwards (GitHub refuses runners left a release behind for long), so this
+# needs no bumps to stay current. The checksum is from the release notes.
+github_runner_version: 2.338.2
+github_runner_sha256: baebf204307bac6193480852732f0aba2ae97b6c5597c244f4d5558390147c40
+# How long a pulled image or build cache entry is kept: long enough to be a
+# cache, short enough that it cannot fill the disk Foundry shares.
+github_runner_prune_after: 336h
