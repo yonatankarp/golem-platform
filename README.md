@@ -36,6 +36,7 @@ source.
 | `vault_lorekeeper_sync.yml` | `vault_lorekeeper_sync_tunnel_token` (Cloudflare tunnel `lorekeeper-sync`), `vault_lorekeeper_sync_create_key` (who may create rooms; `openssl rand -base64 48`, at least 32 characters, entered once in the Lorekeeper app the first time you create an invite link) |
 | `vault_discord_bot.yml` | `vault_discord_bot_token` (Developer Portal -> Bot), `vault_discord_owner_id` (your Discord user ID, quoted) |
 | `vault_monitoring.yml` | `vault_beszel_agent_key`, `vault_beszel_universal_token`, `vault_dozzle_agent_certificate`, `vault_dozzle_agent_private_key` (the Dozzle agent's mTLS pair, PEM), `vault_dozzle_alert_relay_token` (the NAS alert relay's bearer token, 64 hex characters) -- copies of the NAS vault values of the same names; rotating them there means updating them here and converging both hosts |
+| `vault_github_runner.yml` | `vault_github_runner_tokens`: a fine-grained PAT (`github_pat_...`) per account or organisation in `github_runner_targets`, keyed by its name (see GitHub runners) |
 
 Create or change one on golem:
 
@@ -85,3 +86,53 @@ The same command repairs a stranded cloudflared at once. Rerunning the playbook
 applies changes but leaves unchanged containers alone, so it does not.
 Foundry's cloudflared shares Foundry's namespace the same way: restart that
 stack with `sudo sh -c "cd /srv/foundry && docker compose restart"`.
+
+## GitHub runners
+
+Self-hosted Actions runners for **private** repositories only, labelled
+`self-hosted, Linux, X64, golem`. Never point a public repository at them: a
+fork's pull request would run its code here. Each entry in
+`github_runner_targets` gets its own runner: `owner/name` registers to that
+repository (a personal account has no shared pool), a bare name to a whole
+organisation. Set it up once:
+
+1. Create a fine-grained PAT per owner, at github.com > Settings > Developer
+   settings > Fine-grained tokens:
+   - `yonatankarp`: resource owner yonatankarp, only the repositories listed,
+     repository permission *Administration: read and write*.
+   - an organisation: resource owner that organisation, organisation permission
+     *Self-hosted runners: read and write*. Its Default runner group must keep
+     *Allow public repositories* off (Settings > Actions > Runner groups).
+2. On golem, `ansible-vault create group_vars/all/vault_github_runner.yml`:
+
+   ```yaml
+   vault_github_runner_tokens:
+     yonatankarp: github_pat_...
+     guillotine-mods: github_pat_...
+   ```
+
+3. Converge. Then set `runs-on: [self-hosted, golem]` in the workflows that
+   should use it.
+
+Until step 2 is done every converge stops at this role, the last one, so
+everything else still converges. It also stops if any organisation in the list
+lets public repositories use its runners.
+
+The PAT only mints registration tokens; a runner that is already registered
+never needs it again. Taking a target out of the list leaves its runner
+registered and its unit running: stop it and remove it on GitHub by hand.
+
+Jobs run as the `runner` user, which has no sudo and is kept off the LAN, the
+tailnet and Docker's networks like the agent. `docker` in a job reaches a
+rootless Docker of the runner's own, whose image store under `~runner` is the
+pull cache, shared by every runner and pruned of anything older than two weeks.
+Everything the runners start shares one cap (`github_runner_memory_max`,
+`github_runner_cpu_quota`). Runners share a uid, so one repository's job can
+read another's workspace: give them only repositories you trust alike.
+
+The machine is Debian, not GitHub's Ubuntu image: most of its preinstalled
+tools are missing, and `actions/setup-python` has no Debian builds. A workflow
+may need a `container:` or its own installs before it runs here.
+
+To look at them: `sudo -u runner XDG_RUNTIME_DIR=/run/user/$(id -u runner)
+systemctl --user status 'github-runner@*'`.

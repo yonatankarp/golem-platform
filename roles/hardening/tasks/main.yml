@@ -65,6 +65,16 @@
     append: false
   register: hardening_agent
 
+# Here rather than in github_runner: the egress rules below name it, and
+# iptables-restore rejects an --uid-owner that does not exist yet. A regular
+# user, so useradd gives it the subuid range rootless Docker needs.
+- name: Create the GitHub Actions runner user
+  ansible.builtin.user:
+    name: "{{ github_runner_user }}"
+    shell: /bin/bash
+    groups: []
+    append: false
+
 # The agent has no sudo and is kept out of the docker group, which is root in
 # all but name. Its cap is a slice of its own rather than user-<uid>.slice:
 # `sudo -iu agent` opens no logind session and lands in the caller's slice
@@ -115,7 +125,11 @@
 # the agent reached about 15 hosts, and the resolvers dhcpcd writes sit in it
 # and at the ISP. Everything the agent needs answers on IPv4 as well, and a
 # REJECT sends it there at once (fallback tested as the agent, 2026-10-06).
-- name: Keep the agent off the LAN, the tailnet and Docker's networks
+#
+# The GitHub runners get the same treatment: CI runs third-party dependencies.
+# Their jobs' containers run under rootless Docker, whose traffic leaves through
+# slirp4netns, a process of the runner user, so the owner match covers them too.
+- name: Keep the agent and the GitHub runners off the LAN, the tailnet and Docker's networks
   ansible.builtin.blockinfile:
     path: "/etc/ufw/{{ item.file }}"
     marker: "# {mark} golem agent egress"
@@ -127,6 +141,12 @@
       -A golem-agent-egress -p tcp --dport 53 -d {{ item.resolvers }} -j RETURN
       -A golem-agent-egress -m limit --limit 3/min --limit-burst 10 -j LOG --log-prefix "[golem-agent-egress] "
       -A golem-agent-egress -j REJECT
+      :golem-runner-egress - [0:0]
+      -A {{ item.chain }} -m owner --uid-owner {{ github_runner_user }} -m conntrack --ctstate NEW -d {{ item.private }} -j golem-runner-egress
+      -A golem-runner-egress -p udp --dport 53 -d {{ item.resolvers }} -j RETURN
+      -A golem-runner-egress -p tcp --dport 53 -d {{ item.resolvers }} -j RETURN
+      -A golem-runner-egress -m limit --limit 3/min --limit-burst 10 -j LOG --log-prefix "[golem-runner-egress] "
+      -A golem-runner-egress -j REJECT
     validate: "/usr/sbin/{{ item.restore }} --noflush --test %s"
   loop:
     - file: before.rules

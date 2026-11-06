@@ -1,0 +1,272 @@
+# A fine-grained PAT is scoped to one account or organisation, so each owner in
+# github_runner_targets needs its own; a template value saved unedited must not
+# deploy, as with every other vault here.
+- name: Refuse missing or placeholder GitHub runner tokens
+  ansible.builtin.assert:
+    that:
+      - vault_github_runner_tokens[item.split('/')[0]] is defined
+      - vault_github_runner_tokens[item.split('/')[0]] is match('^github_pat_[A-Za-z0-9_]{60,}$')
+    fail_msg: >-
+      group_vars/all/vault_github_runner.yml has no fine-grained token
+      (github_pat_...) under {{ item.split('/')[0] }}, which {{ item }} needs.
+    quiet: true
+  loop: "{{ github_runner_targets }}"
+  no_log: true
+
+# uidmap and slirp4netns are rootless Docker's (docker-ce-rootless-extras comes
+# with docker-ce); the lib* are the runner's .NET runtime's; the rest is what
+# workflows written for GitHub's images assume is there.
+- name: Install rootless Docker's and the runner's dependencies
+  ansible.builtin.apt:
+    name:
+      - uidmap
+      - slirp4netns
+      - docker-ce-rootless-extras
+      - libicu76
+      - libkrb5-3
+      - zlib1g
+      - git
+      - curl
+      - jq
+      - unzip
+      - zstd
+    state: present
+
+- name: Look up the runner user
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ github_runner_user }}"
+
+- name: Name the runner user's home and runtime directory
+  ansible.builtin.set_fact:
+    github_runner_uid: "{{ ansible_facts.getent_passwd[github_runner_user][1] }}"
+    github_runner_home: "{{ ansible_facts.getent_passwd[github_runner_user][4] }}"
+    github_runner_runtime_dir: "/run/user/{{ ansible_facts.getent_passwd[github_runner_user][1] }}"
+
+# Everything the runners start, rootless Docker and its containers included,
+# runs under the user's lingering systemd manager, so in user-<uid>.slice: the
+# one place a cap catches all of it. (Unlike the agent's, nothing here comes in
+# through sudo, which would land outside it.)
+- name: Create the runner user's slice drop-in directory
+  ansible.builtin.file:
+    path: "/etc/systemd/system/user-{{ github_runner_uid }}.slice.d"
+    state: directory
+    mode: "0755"
+
+- name: Cap the runners so CI cannot starve Foundry
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/user-{{ github_runner_uid }}.slice.d/10-golem-cap.conf"
+    content: |
+      [Slice]
+      MemoryMax={{ github_runner_memory_max }}
+      CPUQuota={{ github_runner_cpu_quota }}
+    mode: "0644"
+  notify: Reload systemd
+
+- name: Keep the runner user's systemd manager running without a login
+  ansible.builtin.command: loginctl enable-linger {{ github_runner_user }}
+  args:
+    creates: "/var/lib/systemd/linger/{{ github_runner_user }}"
+
+- name: Start the runner user's systemd manager
+  ansible.builtin.systemd_service:
+    name: "user@{{ github_runner_uid }}.service"
+    state: started
+  ignore_errors: "{{ ansible_check_mode }}"
+
+# Shared by every runner user manager; one instance per target, each taking one
+# job at a time. Not a security boundary: run.sh is the runner's own file.
+- name: Define the runner and image-pruning user units
+  ansible.builtin.copy:
+    dest: "/etc/systemd/user/{{ item.name }}"
+    content: "{{ item.content }}"
+    mode: "0644"
+  loop:
+    - name: github-runner@.service
+      content: |
+        [Unit]
+        Description=GitHub Actions runner for %i
+        After=docker.service
+        Wants=docker.service
+
+        [Service]
+        WorkingDirectory=%h/runners/%i
+        ExecStart=%h/runners/%i/run.sh
+        Restart=always
+        RestartSec=10
+        # Lets a running job finish its step rather than killing its children.
+        KillMode=process
+        TimeoutStopSec=5min
+
+        [Install]
+        WantedBy=default.target
+    # until= is creation time, not last use, so a busy image is re-pulled every
+    # github_runner_prune_after: one pull a fortnight, against a disk that fills.
+    - name: github-runner-prune.service
+      content: |
+        [Unit]
+        Description=Prune the runners' Docker images and build cache
+        Requires=docker.service
+        After=docker.service
+
+        [Service]
+        Type=oneshot
+        Environment=DOCKER_HOST=unix://%t/docker.sock
+        ExecStart=/usr/bin/docker system prune --all --force --filter until={{ github_runner_prune_after }}
+    - name: github-runner-prune.timer
+      content: |
+        [Unit]
+        Description=Prune the runners' Docker cache daily
+
+        [Timer]
+        OnCalendar=daily
+        Persistent=true
+
+        [Install]
+        WantedBy=timers.target
+  loop_control:
+    label: "{{ item.name }}"
+
+# Its own daemon and image store under the runner's home, which is the cache
+# that persists from job to job. Installs and starts docker.service as a user
+# unit. Rootful Docker's socket is root-only, so the tool does not refuse.
+- name: Set up rootless Docker for the runner user
+  ansible.builtin.command: dockerd-rootless-setuptool.sh install
+  args:
+    creates: "{{ github_runner_home }}/.config/systemd/user/docker.service"
+  become: true
+  become_user: "{{ github_runner_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "{{ github_runner_runtime_dir }}"
+  ignore_errors: "{{ ansible_check_mode }}"
+
+- name: Download the runner
+  ansible.builtin.get_url:
+    url: "https://github.com/actions/runner/releases/download/v{{ github_runner_version }}/actions-runner-linux-x64-{{ github_runner_version }}.tar.gz"
+    dest: "{{ github_runner_home }}/actions-runner-{{ github_runner_version }}.tar.gz"
+    checksum: "sha256:{{ github_runner_sha256 }}"
+    owner: "{{ github_runner_user }}"
+    group: "{{ github_runner_user }}"
+    mode: "0644"
+
+- name: Create a directory per runner
+  ansible.builtin.file:
+    path: "{{ github_runner_home }}/runners/{{ item | replace('/', '-') }}"
+    state: directory
+    owner: "{{ github_runner_user }}"
+    group: "{{ github_runner_user }}"
+    mode: "0700"
+  loop: "{{ github_runner_targets }}"
+
+- name: Unpack the runner into each directory
+  ansible.builtin.unarchive:
+    src: "{{ github_runner_home }}/actions-runner-{{ github_runner_version }}.tar.gz"
+    dest: "{{ github_runner_home }}/runners/{{ item | replace('/', '-') }}"
+    remote_src: true
+    creates: "{{ github_runner_home }}/runners/{{ item | replace('/', '-') }}/config.sh"
+    owner: "{{ github_runner_user }}"
+    group: "{{ github_runner_user }}"
+  loop: "{{ github_runner_targets }}"
+  ignore_errors: "{{ ansible_check_mode }}"
+
+# A fork's pull request runs the workflow file from the fork, so it can ask for
+# runs-on: golem; only a runner group closed to public repositories stops that
+# on an organisation with public repositories (guillotine-mods has two).
+- name: Read each organisation's runner groups
+  ansible.builtin.uri:
+    url: "https://api.github.com/orgs/{{ item }}/actions/runner-groups"
+    headers:
+      Authorization: "Bearer {{ vault_github_runner_tokens[item] }}"
+      Accept: application/vnd.github+json
+      X-GitHub-Api-Version: "2022-11-28"
+  loop: "{{ github_runner_targets | reject('search', '/') | list }}"
+  register: github_runner_groups
+  no_log: true
+
+- name: Refuse an organisation whose runners public repositories may use
+  ansible.builtin.assert:
+    that: item.json.runner_groups | selectattr('allows_public_repositories') | list | length == 0
+    fail_msg: >-
+      {{ item.item }} lets public repositories use its runners: turn off
+      "Allow public repositories" in Settings > Actions > Runner groups.
+    quiet: true
+  loop: "{{ github_runner_groups.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Find which runners are registered
+  ansible.builtin.stat:
+    path: "{{ github_runner_home }}/runners/{{ item | replace('/', '-') }}/.runner"
+  loop: "{{ github_runner_targets }}"
+  register: github_runner_registered
+
+# The registration token lasts an hour and is spent here; the PAT never leaves
+# this play. owner/name is a repository, a bare name an organisation.
+- name: Get a registration token for each new runner
+  ansible.builtin.uri:
+    url: "https://api.github.com/{{ 'repos' if '/' in item.item else 'orgs' }}/{{ item.item }}/actions/runners/registration-token"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ vault_github_runner_tokens[item.item.split('/')[0]] }}"
+      Accept: application/vnd.github+json
+      X-GitHub-Api-Version: "2022-11-28"
+    status_code: 201
+  loop: "{{ github_runner_registered.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: not item.stat.exists
+  register: github_runner_tokens
+  no_log: true
+
+- name: Register each new runner
+  ansible.builtin.command:
+    argv:
+      - ./config.sh
+      - --unattended
+      - --replace
+      - --url
+      - "https://github.com/{{ item.item.item }}"
+      - --token
+      - "{{ item.json.token }}"
+      - --name
+      - golem
+      - --labels
+      - golem
+  args:
+    chdir: "{{ github_runner_home }}/runners/{{ item.item.item | replace('/', '-') }}"
+    creates: "{{ github_runner_home }}/runners/{{ item.item.item | replace('/', '-') }}/.runner"
+  become: true
+  become_user: "{{ github_runner_user }}"
+  loop: "{{ github_runner_tokens.results }}"
+  loop_control:
+    label: "{{ item.item.item }}"
+  when: item.json is defined
+  no_log: true
+
+# Jobs inherit the runner's .env, so `docker` in a step reaches rootless Docker.
+- name: Point each runner's jobs at rootless Docker
+  ansible.builtin.lineinfile:
+    path: "{{ github_runner_home }}/runners/{{ item | replace('/', '-') }}/.env"
+    regexp: "^DOCKER_HOST="
+    line: "DOCKER_HOST=unix://{{ github_runner_runtime_dir }}/docker.sock"
+    create: true
+    owner: "{{ github_runner_user }}"
+    group: "{{ github_runner_user }}"
+    mode: "0644"
+  loop: "{{ github_runner_targets }}"
+
+- name: Start the runners and the pruning timer
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    scope: user
+    enabled: true
+    state: started
+    daemon_reload: true
+  loop: >-
+    {{ ['github-runner-prune.timer']
+       + github_runner_targets | map('replace', '/', '-') | map('regex_replace', '^(.*)$', 'github-runner@\1.service') | list }}
+  become: true
+  become_user: "{{ github_runner_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "{{ github_runner_runtime_dir }}"
+  ignore_errors: "{{ ansible_check_mode }}"

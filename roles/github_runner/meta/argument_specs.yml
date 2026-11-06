@@ -1,0 +1,30 @@
+argument_specs:
+  main:
+    short_description: GitHub Actions runners for private repositories, with rootless Docker as their image cache
+    options:
+      github_runner_user:
+        type: str
+        required: true
+        description: Created by hardening, which also keeps it off the LAN and the tailnet.
+      github_runner_targets:
+        type: list
+        elements: str
+        required: true
+        description: owner/name registers a runner to one repository, a bare name to a whole organisation.
+      github_runner_memory_max:
+        type: str
+        required: true
+      github_runner_cpu_quota:
+        type: str
+        required: true
+      github_runner_version:
+        type: str
+      github_runner_sha256:
+        type: str
+      github_runner_prune_after:
+        type: str
+      vault_github_runner_tokens:
+        type: dict
+        required: true
+        no_log: true
+        description: A fine-grained PAT per account or organisation in github_runner_targets, keyed by its name.
