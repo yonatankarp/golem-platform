@@ -5,7 +5,9 @@
 # Cancels a job in progress: it reruns on the next container.
 - name: Restart the runners
   ansible.builtin.systemd_service:
-    name: "github-runner@{{ item | replace('/', '-') }}.service"
+    name: "github-runner@{{ item.name }}.service"
     state: restarted
     daemon_reload: true
-  loop: "{{ github_runner_targets }}"
+  loop: "{{ github_runner_units }}"
+  loop_control:
+    label: "{{ item.name }}"

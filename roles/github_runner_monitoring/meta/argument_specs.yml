@@ -9,10 +9,11 @@ argument_specs:
       github_runner_user:
         type: str
         required: true
-      github_runner_targets:
+      github_runner_units:
         type: list
-        elements: str
+        elements: dict
         required: true
+        description: Set by the github_runner role, which must run first.
       github_runner_dozzle_agent_address:
         type: str
         required: true

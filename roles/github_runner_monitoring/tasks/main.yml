@@ -6,8 +6,10 @@
 - name: Name the rootless Docker socket and the runner units
   ansible.builtin.set_fact:
     github_runner_monitoring_socket: "/run/user/{{ ansible_facts.getent_passwd[github_runner_user][1] }}/docker.sock"
+    # github_runner's own list (it runs just before this role), so a target's
+    # second runner (<target>-2) is paged for too.
     github_runner_monitoring_units: >-
-      {{ github_runner_targets | map('replace', '/', '-') | map('regex_replace', '^(.*)$', 'github-runner@\1.service') | join(' ') }}
+      {{ github_runner_units | map(attribute='name') | map('regex_replace', '^(.*)$', 'github-runner@\1.service') | join(' ') }}
 
 - name: Create the runner monitoring directory
   ansible.builtin.file:

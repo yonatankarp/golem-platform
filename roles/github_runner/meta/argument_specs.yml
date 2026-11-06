@@ -17,6 +17,12 @@ argument_specs:
       github_runner_cpu_quota:
         type: str
         required: true
+      github_runner_cpu_weight:
+        type: int
+        description: The runners' share of the CPU against other slices when it is contended (systemd's default is 100).
+      github_runner_instances:
+        type: dict
+        description: Runners per target, for targets that need more than one (at most 4).
       github_runner_prune_after:
         type: str
       vault_github_runner_tokens:
