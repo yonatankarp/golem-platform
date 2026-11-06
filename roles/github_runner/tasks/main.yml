@@ -15,7 +15,8 @@
 
 # uidmap and slirp4netns are rootless Docker's (docker-ce-rootless-extras comes
 # with docker-ce); the lib* are the runner's .NET runtime's; the rest is what
-# workflows written for GitHub's images assume is there.
+# workflows written for GitHub's images assume is there (fontconfig: Godot loads
+# it even headless, and logs its absence).
 - name: Install rootless Docker's and the runner's dependencies
   ansible.builtin.apt:
     name:
@@ -30,6 +31,7 @@
       - jq
       - unzip
       - zstd
+      - libfontconfig1
     state: present
 
 - name: Look up the runner user
