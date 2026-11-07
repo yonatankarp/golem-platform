@@ -125,7 +125,8 @@ the jobs queued for `golem` in each target's repositories and which runners are
 busy, and starts a runner container for whichever target is short, in turn,
 until the slots are full; a spare idle runner makes way when another target
 needs its slot, and goes after 10 idle minutes. `github_runner_warm` keeps a
-target's next runner ready. Each container is fresh, from the runner image
+target's next runner ready, and `github_runner_target_max` caps how many slots
+one target may hold, so a heavy target's queue cannot take them all. Each container is fresh, from the runner image
 (GitHub's `actions-runner`, Ubuntu like their hosted runners, plus what
 `roles/github_runner/files/Dockerfile` adds of a hosted runner's tools: Compose,
 Ruby, zip, python3-venv, Xvfb and the libraries Godot draws with; no `gh`): it

@@ -227,6 +227,7 @@
       targets: "{{ github_runner_targets }}"
       max_runners: "{{ github_runner_max }}"
       warm: "{{ github_runner_warm }}"
+      target_max: "{{ github_runner_target_max }}"
       # Seconds. A runner registered and listening 7-12 s after its container
       # started (measured 2026-11-06), so 90 s of grace is generous.
       poll: 15

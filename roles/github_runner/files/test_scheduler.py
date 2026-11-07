@@ -15,8 +15,9 @@ def c(name, target, age, runner=None):
     return {"name": name, "target": target, "runner": runner or f"golem-{name}", "created": NOW - age}
 
 
-def run(containers=(), demand=None, busy=(), max_runners=4, warm=None, idle_after=600, grace=90):
-    return plan(TARGETS, list(containers), demand or {}, set(busy), NOW, max_runners, warm or {}, idle_after, grace)
+def run(containers=(), demand=None, busy=(), max_runners=4, warm=None, target_max=None, idle_after=600, grace=90):
+    return plan(TARGETS, list(containers), demand or {}, set(busy), NOW, max_runners, warm or {}, target_max or {},
+                idle_after, grace)
 
 
 # Nothing queued, nothing running: only the warm runner starts.
@@ -61,6 +62,19 @@ assert starts == [G] and stops == ["d"], (starts, stops)
 over = [c(n, T, 900) for n in "abcde"]
 starts, stops = run(over, max_runners=2)
 assert starts == [] and len(stops) == 5
+
+# A capped target stops at its cap, however long its queue; the other slots stay free.
+assert run(demand={T: 9}, target_max={T: 2}) == ([T, T], [])
+starts, stops = run(demand={T: 9, B: 1}, target_max={T: 2})
+assert sorted(starts) == [B, T, T] and stops == [], (starts, stops)
+
+# At its cap with every runner busy: nothing new, and no one else's spare is reclaimed for it.
+capped = [c("a", T, 300), c("b", T, 300), c("c", B, 300)]
+starts, stops = run(capped, demand={T: 5}, busy={"golem-a", "golem-b"}, target_max={T: 2})
+assert (starts, stops) == ([], []), (starts, stops)
+
+# The warm runner counts against the cap too.
+assert run([c("a", T, 300)], busy={"golem-a"}, warm={T: 1}, target_max={T: 1}) == ([], [])
 
 assert scope(T) == "repos/yonatankarp/the-stack" and scope(G) == "orgs/guillotine-mods"
 

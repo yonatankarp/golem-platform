@@ -24,12 +24,13 @@ TARGET_LABEL = "golem.github-runner.target"
 RUNTIME = "/run/github-runner-scheduler"
 
 
-def plan(targets, containers, demand, busy, now, max_runners, warm, idle_after, grace):
+def plan(targets, containers, demand, busy, now, max_runners, warm, target_max, idle_after, grace):
     """Which targets to start a runner for, and which containers to stop.
 
     containers: dicts with name, target, runner (its GitHub runner name) and
     created (epoch seconds). demand: queued jobs per target. busy: names of runners
-    running a job. warm: idle runners to keep ready per target. A container younger
+    running a job. warm: idle runners to keep ready per target. target_max: most runners
+    a target may hold at once (default max_runners). A container younger
     than `grace` may still be registering, so it counts as idle but is never stopped.
     """
     idle = {t: sorted((c for c in containers if c["target"] == t and c["runner"] not in busy),
@@ -38,6 +39,7 @@ def plan(targets, containers, demand, busy, now, max_runners, warm, idle_after, 
     spares = {t: idle[t][demand.get(t, 0):] for t in targets}
     unmet = {t: max(demand.get(t, 0) - len(idle[t]), 0) for t in targets}
     free = max_runners - len(containers)
+    room = {t: target_max.get(t, max_runners) - sum(c["target"] == t for c in containers) for t in targets}
     starts, stops = [], []
 
     def reclaim():
@@ -54,7 +56,7 @@ def plan(targets, containers, demand, busy, now, max_runners, warm, idle_after, 
     while any(unmet.values()):
         progressed = False
         for t in targets:
-            if not unmet[t]:
+            if not unmet[t] or room[t] <= 0:
                 continue
             if free <= 0:
                 if not reclaim():
@@ -62,6 +64,7 @@ def plan(targets, containers, demand, busy, now, max_runners, warm, idle_after, 
                 free += 1
             starts.append(t)
             unmet[t] -= 1
+            room[t] -= 1
             free -= 1
             progressed = True
         if not progressed:
@@ -69,9 +72,10 @@ def plan(targets, containers, demand, busy, now, max_runners, warm, idle_after, 
 
     for t in targets:
         short = warm.get(t, 0) - len(spares[t])
-        while short > 0 and free > 0:
+        while short > 0 and free > 0 and room[t] > 0:
             starts.append(t)
             short -= 1
+            room[t] -= 1
             free -= 1
         for c in sorted(spares[t], key=lambda c: c["created"])[: max(len(spares[t]) - warm.get(t, 0), 0)]:
             if now - c["created"] >= idle_after and c["name"] not in stops:
@@ -248,7 +252,8 @@ class Scheduler:
         for gh in self.github.values():
             gh.forget_unused()
         starts, stops = plan(self.targets, containers, demand, busy, time.time(),
-                             self.cfg["max_runners"], self.cfg["warm"], self.cfg["idle_after"], self.cfg["grace"])
+                             self.cfg["max_runners"], self.cfg["warm"], self.cfg["target_max"],
+                             self.cfg["idle_after"], self.cfg["grace"])
         by_name = {c["name"]: c for c in containers}
         for name in stops:
             self.stop(by_name[name], registered)

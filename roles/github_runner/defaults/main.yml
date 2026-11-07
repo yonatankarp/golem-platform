@@ -3,3 +3,4 @@
 github_runner_prune_after: 336h
 github_runner_cpu_weight: 100
 github_runner_warm: {}
+github_runner_target_max: {}
