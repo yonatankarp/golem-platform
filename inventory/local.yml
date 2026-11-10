@@ -26,17 +26,19 @@ all:
     github_runner_cpu_quota: 300%
     github_runner_cpu_weight: 20
     # Runner slots, shared: the scheduler gives them to whichever targets have jobs
-    # queued. Two heavy jobs fill golem's spare CPU; four lets light ones through
-    # beside them.
+    # queued. Three heavy jobs fill golem's spare CPU; four lets a light one
+    # through beside them.
     github_runner_max: 4
     # Kept ready, so the-stack's next gate starts at once instead of in ~30 s.
     github_runner_warm:
       yonatankarp/the-stack: 1
-    # the-stack's jobs each run Godot. Four at once under the 300% quota starved
-    # them past the gate's own time limits (2026-11-06); two leave the other
-    # two slots for the light repositories.
+    # the-stack's jobs each run Godot on about one core. Four at once under the
+    # 300% quota starved them past the gate's own time limits (2026-11-06);
+    # three fit it. Two side by side held 0.5G of their own beside file cache,
+    # with no memory pressure (2026-11-10), so 3G holds three. The fourth slot
+    # stays for the light repositories.
     github_runner_target_max:
-      yonatankarp/the-stack: 2
+      yonatankarp/the-stack: 3
     github_runner_targets:
       - yonatankarp/before-dark
       - yonatankarp/the-stack
