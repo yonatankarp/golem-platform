@@ -4,3 +4,6 @@ github_runner_prune_after: 336h
 github_runner_cpu_weight: 100
 github_runner_warm: {}
 github_runner_target_max: {}
+# A target without its own cap may hold this share of the slots, so one queue
+# never takes them all.
+github_runner_target_share: 0.75

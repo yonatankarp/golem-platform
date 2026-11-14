@@ -15,17 +15,21 @@ def c(name, target, age, runner=None):
     return {"name": name, "target": target, "runner": runner or f"golem-{name}", "created": NOW - age}
 
 
-def run(containers=(), demand=None, busy=(), max_runners=4, warm=None, target_max=None, idle_after=600, grace=90):
+def run(containers=(), demand=None, busy=(), max_runners=4, warm=None, target_max=None, target_share=0.75, idle_after=600,
+        grace=90):
     return plan(TARGETS, list(containers), demand or {}, set(busy), NOW, max_runners, warm or {}, target_max or {},
-                idle_after, grace)
+                target_share, idle_after, grace)
 
 
 # Nothing queued, nothing running: only the warm runner starts.
 assert run(warm={T: 1}) == ([T], [])
 assert run() == ([], [])
 
-# A burst takes every free slot.
-assert run(demand={T: 6}) == ([T, T, T, T], [])
+# A burst takes its share of the slots, 75% of 4, and leaves the rest for the others.
+assert run(demand={T: 6}) == ([T, T, T], [])
+assert run(demand={T: 6}, target_share=1) == ([T, T, T, T], [])
+# The share rounds down but never to nothing.
+assert run(demand={T: 6}, max_runners=1) == ([T], [])
 
 # Two targets waiting share the slots in turn.
 starts, stops = run(demand={T: 5, B: 2})
