@@ -30,6 +30,9 @@ argument_specs:
       github_runner_target_max:
         type: dict
         description: The most runners one target may hold at once, below github_runner_max, so its heavy jobs leave slots (and CPU) for the others.
+      github_runner_target_share:
+        type: float
+        description: The share of github_runner_max a target not in github_runner_target_max may hold, rounded down, at least one.
       github_runner_prune_after:
         type: str
       vault_github_runner_tokens:

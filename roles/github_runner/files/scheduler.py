@@ -24,13 +24,13 @@ TARGET_LABEL = "golem.github-runner.target"
 RUNTIME = "/run/github-runner-scheduler"
 
 
-def plan(targets, containers, demand, busy, now, max_runners, warm, target_max, idle_after, grace):
+def plan(targets, containers, demand, busy, now, max_runners, warm, target_max, target_share, idle_after, grace):
     """Which targets to start a runner for, and which containers to stop.
 
     containers: dicts with name, target, runner (its GitHub runner name) and
     created (epoch seconds). demand: queued jobs per target. busy: names of runners
     running a job. warm: idle runners to keep ready per target. target_max: most runners
-    a target may hold at once (default max_runners). A container younger
+    a target may hold at once (default target_share of max_runners, at least one). A container younger
     than `grace` may still be registering, so it counts as idle but is never stopped.
     """
     idle = {t: sorted((c for c in containers if c["target"] == t and c["runner"] not in busy),
@@ -39,7 +39,8 @@ def plan(targets, containers, demand, busy, now, max_runners, warm, target_max, 
     spares = {t: idle[t][demand.get(t, 0):] for t in targets}
     unmet = {t: max(demand.get(t, 0) - len(idle[t]), 0) for t in targets}
     free = max_runners - len(containers)
-    room = {t: target_max.get(t, max_runners) - sum(c["target"] == t for c in containers) for t in targets}
+    share = max(int(max_runners * target_share), 1)
+    room = {t: target_max.get(t, share) - sum(c["target"] == t for c in containers) for t in targets}
     starts, stops = [], []
 
     def reclaim():
@@ -253,7 +254,7 @@ class Scheduler:
             gh.forget_unused()
         starts, stops = plan(self.targets, containers, demand, busy, time.time(),
                              self.cfg["max_runners"], self.cfg["warm"], self.cfg["target_max"],
-                             self.cfg["idle_after"], self.cfg["grace"])
+                             self.cfg["target_share"], self.cfg["idle_after"], self.cfg["grace"])
         by_name = {c["name"]: c for c in containers}
         for name in stops:
             self.stop(by_name[name], registered)

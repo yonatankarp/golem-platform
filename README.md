@@ -126,7 +126,9 @@ busy, and starts a runner container for whichever target is short, in turn,
 until the slots are full; a spare idle runner makes way when another target
 needs its slot, and goes after 10 idle minutes. `github_runner_warm` keeps a
 target's next runner ready, and `github_runner_target_max` caps how many slots
-one target may hold, so a heavy target's queue cannot take them all. Each container is fresh, from the runner image
+one target may hold, so a heavy target's queue cannot take them all; a target
+it does not name may hold `github_runner_target_share` of them (75%, rounded
+down: 3 of 4). Each container is fresh, from the runner image
 (GitHub's `actions-runner`, Ubuntu like their hosted runners, plus what
 `roles/github_runner/files/Dockerfile` adds of a hosted runner's tools: Compose,
 Ruby, zip, python3-venv, Xvfb and the libraries Godot draws with; no `gh`): it
