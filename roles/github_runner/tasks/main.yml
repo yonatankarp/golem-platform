@@ -25,6 +25,8 @@
       X-GitHub-Api-Version: "2022-11-28"
   loop: "{{ github_runner_targets | reject('search', '/') | list }}"
   register: github_runner_groups
+  # Only a GET, and --check skips uri otherwise, which leaves the assert below no answer to read.
+  check_mode: false
   no_log: true
 
 - name: Refuse an organisation whose runners public repositories may use
