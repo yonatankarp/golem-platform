@@ -128,8 +128,11 @@ needs its slot, and goes after 10 idle minutes. `github_runner_warm` keeps a
 target's next runner ready, and `github_runner_target_max` caps how many slots
 one target may hold, so a heavy target's queue cannot take them all; a target
 it does not name may hold `github_runner_target_share` of them (75%, rounded
-down: 3 of 4). Each container is fresh, from the runner image
-(GitHub's `actions-runner`, Ubuntu like their hosted runners, plus what
+down: 3 of 4). A job may ask for one label beside `golem` (`golem-pr`); its
+runner registers with that label too, so it takes only such jobs, and
+`github_runner_label_max` caps a label's runners within the target's, which keeps
+the rest of the target's slots for its other labels. Each container is fresh,
+from the runner image (GitHub's `actions-runner`, Ubuntu like their hosted runners, plus what
 `roles/github_runner/files/Dockerfile` adds of a hosted runner's tools: Compose,
 Ruby, zip, python3-venv, Xvfb and the libraries Godot draws with; no `gh`): it
 registers with a one-hour token the scheduler minted, takes one job and exits,

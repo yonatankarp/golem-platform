@@ -29,9 +29,11 @@ all:
     # queued. Three heavy jobs fill golem's spare CPU; four lets a light one
     # through beside them.
     github_runner_max: 4
-    # Kept ready, so the-stack's next gate starts at once instead of in ~30 s.
+    # Kept ready, so the-stack's next pull-request gate starts at once instead
+    # of in ~30 s.
     github_runner_warm:
-      yonatankarp/the-stack: 1
+      yonatankarp/the-stack:
+        golem-pr: 1
     # the-stack's jobs each run Godot on about one core. Four at once under the
     # 300% quota starved them past the gate's own time limits (2026-11-06);
     # three fit it. Two side by side held 0.5G of their own beside file cache,
@@ -39,6 +41,13 @@ all:
     # stays for the light repositories.
     github_runner_target_max:
       yonatankarp/the-stack: 3
+    # Of those three, one is main's gate and the nightly's alone (the-stack#1007):
+    # pull-request gates waiting on the gate lock held all three for hours on
+    # 2026-11-20. Its jobs ask for golem-pr or golem-main beside golem.
+    github_runner_label_max:
+      yonatankarp/the-stack:
+        golem-pr: 2
+        golem-main: 1
     github_runner_targets:
       - yonatankarp/before-dark
       - yonatankarp/the-stack
