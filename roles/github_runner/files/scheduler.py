@@ -2,9 +2,10 @@
 """Shares golem's runner slots between the targets that have jobs waiting.
 
 Every few seconds: counts the jobs queued for the `golem` label in each target's
-repositories, sees which runner containers are busy, and starts an ephemeral
-runner container (one job, then gone) for whichever target is short, round-robin,
-up to a shared maximum. A spare idle runner is stopped when another target needs
+repositories, by the one extra label each may ask for (golem-pr, golem-main), sees
+which runner containers are busy, and starts an ephemeral runner container (one
+job, then gone) with those labels for whichever target is short, round-robin, up
+to a shared maximum. A spare idle runner is stopped when another target needs
 its slot, or once it has idled too long; a busy one is never touched. Runs as
 root: the PATs in /etc/github-runner stay there, and only a one-hour
 registration token reaches a container.
@@ -13,6 +14,7 @@ registration token reaches a container.
 import http.client
 import json
 import os
+import re
 import secrets
 import subprocess
 import sys
@@ -21,64 +23,83 @@ from datetime import datetime
 
 CONFIG = "/etc/github-runner/scheduler.json"
 TARGET_LABEL = "golem.github-runner.target"
+RUNNER_LABEL = "golem.github-runner.label"
+# A runner has these without asking, so a job naming them needs no extra label.
+DEFAULT_LABELS = {"self-hosted", "linux", "x64", "golem"}
 RUNTIME = "/run/github-runner-scheduler"
 
 
-def plan(targets, containers, demand, busy, now, max_runners, warm, target_max, target_share, idle_after, grace):
-    """Which targets to start a runner for, and which containers to stop.
+def plan(targets, containers, demand, busy, now, max_runners, warm, target_max, target_share, idle_after, grace,
+         label_max):
+    """Which (target, label) pools to start a runner for, and which containers to stop.
 
-    containers: dicts with name, target, runner (its GitHub runner name) and
-    created (epoch seconds). demand: queued jobs per target. busy: names of runners
-    running a job. warm: idle runners to keep ready per target. target_max: most runners
-    a target may hold at once (default target_share of max_runners, at least one). A container younger
-    than `grace` may still be registering, so it counts as idle but is never stopped.
+    A pool is a target's runners with one extra label beside `golem`, or with none
+    (""): a job asking for golem-main only runs on a golem-main runner. containers:
+    dicts with name, target, label, runner (its GitHub runner name) and created
+    (epoch seconds). demand: queued jobs per target per label. busy: names of runners
+    running a job. warm: idle runners to keep ready per target, a count for its plain
+    pool or one per label. target_max: most runners a target may hold at once (default
+    target_share of max_runners, at least one); label_max: most per label within that,
+    so a label's slots are kept for it. A container younger than `grace` may still be
+    registering, so it counts as idle but is never stopped.
     """
-    idle = {t: sorted((c for c in containers if c["target"] == t and c["runner"] not in busy),
-                      key=lambda c: c["created"], reverse=True) for t in targets}
+    warm = {(t, l): n for t, v in warm.items() for l, n in (v.items() if isinstance(v, dict) else [("", v)])}
+    want = {(t, l): n for t, v in demand.items() for l, n in v.items()}
+    # Sorted, so golem-main gets the-stack's turn before golem-pr when both wait.
+    pools = {t: sorted({""} | set(label_max.get(t, {})) | {l for (u, l) in [*warm, *want] if u == t}
+                       | {c["label"] for c in containers if c["target"] == t}) for t in targets}
+    keys = [(t, l) for t in targets for l in pools[t]]
+    idle = {p: sorted((c for c in containers if (c["target"], c["label"]) == p and c["runner"] not in busy),
+                      key=lambda c: c["created"], reverse=True) for p in keys}
     # The newest idle runners take the queued jobs; the rest are spares.
-    spares = {t: idle[t][demand.get(t, 0):] for t in targets}
-    unmet = {t: max(demand.get(t, 0) - len(idle[t]), 0) for t in targets}
+    spares = {p: idle[p][want.get(p, 0):] for p in keys}
+    unmet = {p: max(want.get(p, 0) - len(idle[p]), 0) for p in keys}
     free = max_runners - len(containers)
     share = max(int(max_runners * target_share), 1)
     room = {t: target_max.get(t, share) - sum(c["target"] == t for c in containers) for t in targets}
+    lroom = {(t, l): label_max.get(t, {}).get(l, max_runners)
+             - sum((c["target"], c["label"]) == (t, l) for c in containers) for (t, l) in keys}
     starts, stops = [], []
 
     def reclaim():
-        # A spare from a target with no unmet demand, past its grace, oldest first.
-        candidates = [c for t in targets if unmet[t] == 0 for c in spares[t]
+        # A spare from a pool with no unmet demand, past its grace, oldest first.
+        candidates = [c for p in keys if unmet[p] == 0 for c in spares[p]
                       if now - c["created"] >= grace and c["name"] not in stops]
         if not candidates:
             return False
         victim = min(candidates, key=lambda c: c["created"])
         stops.append(victim["name"])
-        spares[victim["target"]].remove(victim)
+        spares[(victim["target"], victim["label"])].remove(victim)
         return True
 
     while any(unmet.values()):
         progressed = False
-        for t in targets:
-            if not unmet[t] or room[t] <= 0:
+        for t in targets:  # one start per target per round, from its first pool waiting
+            p = next(((t, l) for l in pools[t] if unmet[(t, l)] and lroom[(t, l)] > 0), None)
+            if p is None or room[t] <= 0:
                 continue
             if free <= 0:
                 if not reclaim():
                     continue
                 free += 1
-            starts.append(t)
-            unmet[t] -= 1
+            starts.append(p)
+            unmet[p] -= 1
             room[t] -= 1
+            lroom[p] -= 1
             free -= 1
             progressed = True
         if not progressed:
             break
 
-    for t in targets:
-        short = warm.get(t, 0) - len(spares[t])
-        while short > 0 and free > 0 and room[t] > 0:
-            starts.append(t)
+    for p in keys:
+        short = warm.get(p, 0) - len(spares[p])
+        while short > 0 and free > 0 and room[p[0]] > 0 and lroom[p] > 0:
+            starts.append(p)
             short -= 1
-            room[t] -= 1
+            room[p[0]] -= 1
+            lroom[p] -= 1
             free -= 1
-        for c in sorted(spares[t], key=lambda c: c["created"])[: max(len(spares[t]) - warm.get(t, 0), 0)]:
+        for c in sorted(spares[p], key=lambda c: c["created"])[: max(len(spares[p]) - warm.get(p, 0), 0)]:
             if now - c["created"] >= idle_after and c["name"] not in stops:
                 stops.append(c["name"])
     return starts, stops
@@ -184,13 +205,20 @@ class Scheduler:
         return cached[1]
 
     def demand(self, target):
-        """Jobs waiting for a golem runner: queued runs, and the queued jobs of runs already under way."""
-        gh, n = self.gh(target), 0
+        """Jobs waiting for a golem runner, per extra label ("" for none): queued runs, and
+        the queued jobs of runs already under way."""
+        gh, n = self.gh(target), {}
         for repo in self.repos(target):
             for status in ("queued", "in_progress"):
                 for run in gh.get(f"repos/{repo}/actions/runs?status={status}&per_page=100")["workflow_runs"]:
                     jobs = gh.get(f"repos/{repo}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100")["jobs"]
-                    n += sum(1 for j in jobs if j["status"] == "queued" and "golem" in j["labels"])
+                    for j in jobs:
+                        if j["status"] == "queued" and "golem" in j["labels"]:
+                            extra = [lb for lb in j["labels"] if lb.lower() not in DEFAULT_LABELS]
+                            label = extra[0] if extra else ""
+                            # It lands in an env file and a Docker label: nothing but a plain name.
+                            if re.fullmatch(r"[\w.-]*", label):
+                                n[label] = n.get(label, 0) + 1
         return n
 
     def runners(self, target):
@@ -202,26 +230,30 @@ class Scheduler:
                               env={**os.environ, "DOCKER_HOST": f"unix://{self.cfg['socket']}"}, **kw).stdout
 
     def containers(self):
+        # A container from before labels has no RUNNER_LABEL, which reads as "": plain golem.
         out = self.docker("ps", "--filter", f"label={TARGET_LABEL}", "--format",
-                          "{{.ID}}\t{{.Names}}\t{{.Label \"" + TARGET_LABEL + "\"}}\t{{.CreatedAt}}")
+                          "{{.ID}}\t{{.Names}}\t{{.Label \"" + TARGET_LABEL + "\"}}\t{{.Label \"" + RUNNER_LABEL
+                          + "\"}}\t{{.CreatedAt}}")
         found = []
         for line in out.splitlines():
-            cid, name, target, created = line.split("\t")
-            found.append({"name": name, "target": target, "runner": f"golem-{cid[:12]}",
+            cid, name, target, label, created = line.split("\t")
+            found.append({"name": name, "target": target, "label": label, "runner": f"golem-{cid[:12]}",
                           "created": datetime.strptime(created[:25], "%Y-%m-%d %H:%M:%S %z").timestamp()})
         return found
 
-    def start(self, target):
+    def start(self, target, label):
         token = self.gh(target).post(f"{scope(target)}/actions/runners/registration-token")["token"]
         name = f"github-runner-{target.replace('/', '-')}-{secrets.token_hex(3)}"
         env = f"{RUNTIME}/{name}.env"
         fd = os.open(env, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "w") as f:
-            f.write(f"RUNNER_URL=https://github.com/{target}\nRUNNER_TOKEN={token}\n")
+            f.write(f"RUNNER_URL=https://github.com/{target}\nRUNNER_TOKEN={token}\n"
+                    f"RUNNER_LABELS=golem{',' + label if label else ''}\n")
         try:
             # The container's root is the runner user (rootless Docker), the one uid
             # allowed on the socket its jobs are given.
             self.docker("run", "-d", "--rm", "--name", name, "--label", f"{TARGET_LABEL}={target}",
+                        "--label", f"{RUNNER_LABEL}={label}",
                         "--pull", "never", "--user", "0", "-e", "RUNNER_ALLOW_RUNASROOT=1",
                         "-e", "RUNNER_TOOL_CACHE=/opt/hostedtoolcache", "--env-file", env,
                         "-v", f"{self.cfg['socket']}:/var/run/docker.sock",
@@ -229,7 +261,7 @@ class Scheduler:
                         "--log-opt", "max-size=10m", "--log-opt", "max-file=2", self.cfg["image"])
         finally:
             os.unlink(env)
-        print(f"started {name} for {target}", flush=True)
+        print(f"started {name} for {target}{' ' + label if label else ''}", flush=True)
 
     def stop(self, container, registered):
         """Deregisters an idle runner first: GitHub refuses that for a busy one, so a job that
@@ -254,12 +286,13 @@ class Scheduler:
             gh.forget_unused()
         starts, stops = plan(self.targets, containers, demand, busy, time.time(),
                              self.cfg["max_runners"], self.cfg["warm"], self.cfg["target_max"],
-                             self.cfg["target_share"], self.cfg["idle_after"], self.cfg["grace"])
+                             self.cfg["target_share"], self.cfg["idle_after"], self.cfg["grace"],
+                             self.cfg["label_max"])
         by_name = {c["name"]: c for c in containers}
         for name in stops:
             self.stop(by_name[name], registered)
-        for t in starts:
-            self.start(t)
+        for t, label in starts:
+            self.start(t, label)
         summary = {"queued": demand, "running": len(containers), "busy": len(busy & {c["runner"] for c in containers})}
         if summary != self.last_summary:
             print(f"queued {demand}, {summary['busy']} busy of {len(containers)} runners", flush=True)

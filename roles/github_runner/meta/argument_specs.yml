@@ -26,10 +26,17 @@ argument_specs:
         description: Runner containers at once, shared by every target as their queues need.
       github_runner_warm:
         type: dict
-        description: Idle runners to keep ready per target, so its next job starts at once; given up when another target needs the slot.
+        description: >-
+          Idle runners to keep ready per target, so its next job starts at once; given up when another target needs the slot.
+          A count for its plain golem runners, or one per extra label ({golem-pr: 1}).
       github_runner_target_max:
         type: dict
         description: The most runners one target may hold at once, below github_runner_max, so its heavy jobs leave slots (and CPU) for the others.
+      github_runner_label_max:
+        type: dict
+        description: >-
+          Per target, the most runners with each extra label (a job's runs-on beside golem) it may hold, within its own cap,
+          so one label's slots stay kept for it even when it has nothing queued.
       github_runner_target_share:
         type: float
         description: The share of github_runner_max a target not in github_runner_target_max may hold, rounded down, at least one.
