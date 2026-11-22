@@ -51,7 +51,6 @@ all:
     github_runner_targets:
       - yonatankarp/before-dark
       - yonatankarp/the-stack
-      - guillotine-mods
     # The NAS's tailnet IP, not its MagicDNS name: golem resolves through the
     # router, so neither golem nor its containers can resolve *.ts.net.
     nas_tailnet_address: 100.102.136.50

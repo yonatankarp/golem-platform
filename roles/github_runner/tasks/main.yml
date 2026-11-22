@@ -15,7 +15,7 @@
 
 # A fork's pull request runs the workflow file from the fork, so it can ask for
 # runs-on: golem; only a runner group closed to public repositories stops that
-# on an organisation with public repositories (guillotine-mods has two).
+# on an organisation with public repositories.
 - name: Read each organisation's runner groups
   ansible.builtin.uri:
     url: "https://api.github.com/orgs/{{ item }}/actions/runner-groups"
