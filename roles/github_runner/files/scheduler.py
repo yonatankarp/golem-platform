@@ -209,7 +209,8 @@ class Scheduler:
         the queued jobs of runs already under way."""
         gh, n = self.gh(target), {}
         for repo in self.repos(target):
-            for status in ("queued", "in_progress"):
+            # GitHub can mark a run pending while its job is queued (the-stack, 2026-11-22: 15 hours unseen).
+            for status in ("queued", "pending", "in_progress"):
                 for run in gh.get(f"repos/{repo}/actions/runs?status={status}&per_page=100")["workflow_runs"]:
                     jobs = gh.get(f"repos/{repo}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100")["jobs"]
                     for j in jobs:

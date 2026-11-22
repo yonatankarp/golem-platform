@@ -111,9 +111,10 @@ assert run(prs, busy={"golem-a", "golem-b"}, warm={T: {"golem-pr": 1}}, **L) == 
 assert run(demand={T: 5}, **L) == ([TP] * 3, [])
 
 # demand() counts a job by its one label beside golem, and skips a label unfit for an env file.
+# Its one run is listed as pending, as GitHub listed a main gate whose job was queued (2026-11-22).
 class FakeGitHub:
     def get(self, path):
-        if path.endswith("status=in_progress&per_page=100"):
+        if "status=" in path and "status=pending&" not in path:
             return {"workflow_runs": []}
         if "/jobs?" in path:
             return {"jobs": [{"status": "queued", "labels": lb} for lb in (
