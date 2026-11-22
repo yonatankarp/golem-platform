@@ -109,7 +109,7 @@ organisation. Set it up once:
    ```yaml
    vault_github_runner_tokens:
      yonatankarp: github_pat_...
-     guillotine-mods: github_pat_...
+     <organisation>: github_pat_...   # one per organisation in the list
    ```
 
 3. Converge. Then set `runs-on: [self-hosted, golem]` in the workflows that
